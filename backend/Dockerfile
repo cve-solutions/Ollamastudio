@@ -7,9 +7,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 COPY pyproject.toml .
-RUN pip install --no-cache-dir -e .
-
 COPY app/ app/
+RUN pip install --no-cache-dir .
 
 RUN mkdir -p data workspace documents
 
