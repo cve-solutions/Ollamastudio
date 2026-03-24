@@ -43,10 +43,7 @@ class Settings(BaseSettings):
             self.skills_dir,
             self.templates_dir,
         ]:
-            try:
-                d.mkdir(parents=True, exist_ok=True)
-            except PermissionError:
-                pass  # Volume monté avec permissions restrictives
+            d.mkdir(parents=True, exist_ok=True)
 
 
 settings = Settings()
