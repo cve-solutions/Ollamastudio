@@ -1,0 +1,188 @@
+/* OllamaStudio — Design System Global */
+@import '@xterm/xterm/css/xterm.css';
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+/* Import Geist Mono pour le code */
+@import url('https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
+
+:root {
+  /* Couleurs principales */
+  --bg-primary:    #0d0d0f;
+  --bg-secondary:  #13131a;
+  --bg-tertiary:   #1a1a24;
+  --bg-panel:      #16161f;
+  --bg-hover:      #1e1e2a;
+  --bg-active:     #22223a;
+
+  /* Accents */
+  --accent:        #7c6ff7;
+  --accent-light:  #9b8eff;
+  --accent-dim:    rgba(124, 111, 247, 0.15);
+  --accent-border: rgba(124, 111, 247, 0.35);
+
+  --teal:          #2dd4bf;
+  --teal-dim:      rgba(45, 212, 191, 0.12);
+  --coral:         #f97316;
+  --coral-dim:     rgba(249, 115, 22, 0.12);
+  --green:         #4ade80;
+  --green-dim:     rgba(74, 222, 128, 0.12);
+  --red:           #f87171;
+  --red-dim:       rgba(248, 113, 113, 0.12);
+  --amber:         #fbbf24;
+
+  /* Texte */
+  --text-primary:   #e8e8f0;
+  --text-secondary: #9898b0;
+  --text-muted:     #5a5a72;
+  --text-accent:    #9b8eff;
+
+  /* Bordures */
+  --border:         rgba(255,255,255,0.07);
+  --border-light:   rgba(255,255,255,0.04);
+  --border-focus:   rgba(124, 111, 247, 0.5);
+
+  /* Typographie */
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Layout */
+  --sidebar-w:    260px;
+  --explorer-w:   240px;
+  --panel-radius: 8px;
+  --input-radius: 6px;
+
+  /* Scrollbar */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  font-family: var(--font-sans);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow: hidden;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* Sélection */
+::selection { background: var(--accent-dim); color: var(--accent-light); }
+
+/* Utilitaires */
+.font-mono { font-family: var(--font-mono); }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--input-radius);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+}
+.btn-primary:hover { background: var(--accent-light); }
+.btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+.btn-ghost:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.btn-danger {
+  background: var(--red-dim);
+  color: var(--red);
+  border-color: rgba(248,113,113,0.2);
+}
+.btn-danger:hover { background: rgba(248,113,113,0.2); }
+
+/* Code inline */
+code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background: var(--bg-tertiary);
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--teal);
+}
+
+/* Markdown rendu */
+.prose h1, .prose h2, .prose h3 {
+  color: var(--text-primary);
+  margin: 1em 0 0.5em;
+  font-weight: 600;
+}
+.prose h1 { font-size: 1.4em; }
+.prose h2 { font-size: 1.2em; }
+.prose h3 { font-size: 1.05em; }
+.prose p { margin: 0.6em 0; color: var(--text-secondary); }
+.prose ul, .prose ol { margin: 0.5em 0 0.5em 1.2em; color: var(--text-secondary); }
+.prose li { margin: 0.2em 0; }
+.prose pre {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--panel-radius);
+  padding: 12px 16px;
+  overflow-x: auto;
+  margin: 0.8em 0;
+}
+.prose pre code {
+  background: none;
+  padding: 0;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.prose blockquote {
+  border-left: 3px solid var(--accent-border);
+  padding-left: 12px;
+  color: var(--text-secondary);
+  margin: 0.5em 0;
+}
+.prose table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.8em 0;
+  font-size: 13px;
+}
+.prose th, .prose td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+}
+.prose th { background: var(--bg-tertiary); font-weight: 500; }
+.prose a { color: var(--accent-light); text-decoration: none; }
+.prose a:hover { text-decoration: underline; }
+
+/* Animations */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-in { animation: fade-in 0.15s ease-out; }
+
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin 1s linear infinite; }
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
