@@ -56,8 +56,7 @@
     const fd = new FormData();
     for (const f of files) fd.append('files', f);
     try {
-      const BASE = import.meta.env.PUBLIC_API_URL || 'http://localhost:8000';
-      const resp = await fetch(`${BASE}/api/documents/upload`, { method: 'POST', body: fd });
+      const resp = await fetch('/api/documents/upload', { method: 'POST', body: fd });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ detail: resp.statusText }));
         throw new Error(err.detail || `Erreur HTTP ${resp.status}`);

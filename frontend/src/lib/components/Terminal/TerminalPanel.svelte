@@ -9,9 +9,14 @@
   let ws: WebSocket | null = null;
   let mounted = false;
 
+  // WebSocket URL — même hostname que le navigateur, port 8000 (backend)
+  // Le WS ne passe pas par le proxy SvelteKit (pas de support WS natif),
+  // il est connecté directement au backend exposé sur le port 8000.
   const WS_URL = (() => {
-    const base = import.meta.env.PUBLIC_API_URL || 'http://localhost:8000';
-    return base.replace(/^http/, 'ws') + '/api/shell/ws';
+    if (typeof window === 'undefined') return 'ws://localhost:8000/api/shell/ws';
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const hostname = window.location.hostname;
+    return `${proto}//${hostname}:8000/api/shell/ws`;
   })();
 
   onMount(async () => {

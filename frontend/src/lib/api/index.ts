@@ -1,8 +1,11 @@
 /**
  * Client API OllamaStudio — toutes les requêtes HTTP vers le backend FastAPI.
+ *
+ * Toutes les requêtes passent par le proxy SvelteKit (/api/* → backend).
+ * En dev sans proxy, fallback sur http://localhost:8000.
  */
 
-const BASE = import.meta.env.PUBLIC_API_URL || 'http://localhost:8000';
+const BASE = '';  // Requêtes relatives — proxifiées par hooks.server.ts
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(`${BASE}${path}`, {
