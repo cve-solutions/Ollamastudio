@@ -1,12 +1,14 @@
 """Router Skills — personas YAML avec system prompt, outils et paramètres."""
 from __future__ import annotations
 
+import json
 import logging
+import re
 from pathlib import Path
 
 import aiofiles
 import yaml
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
 from app.config import settings
@@ -218,3 +220,132 @@ async def delete_skill(skill_id: str) -> None:
     if not path.exists():
         raise HTTPException(status_code=404, detail="Skill introuvable")
     path.unlink()
+
+
+# ------------------------------------------------------------------
+# Import JSON en masse (compatible Claude / format libre)
+# ------------------------------------------------------------------
+
+def _slugify(text: str) -> str:
+    """Génère un ID slug à partir d'un nom."""
+    slug = re.sub(r"[^\w\s-]", "", text.lower().strip())
+    return re.sub(r"[\s_]+", "-", slug)[:64] or "imported-skill"
+
+
+def _normalize_skill(raw: dict, index: int) -> dict | None:
+    """Normalise une entrée JSON en skill OllamaStudio.
+
+    Accepte les formats :
+    - OllamaStudio natif (id, name, system_prompt, ...)
+    - Claude (name, content/instructions/system_prompt, ...)
+    - Format simplifié (name + prompt)
+    """
+    name = raw.get("name") or raw.get("title") or f"Skill importée #{index + 1}"
+    skill_id = raw.get("id") or raw.get("slug") or _slugify(name)
+
+    # Détecte le champ prompt principal
+    system_prompt = (
+        raw.get("system_prompt")
+        or raw.get("content")
+        or raw.get("instructions")
+        or raw.get("prompt")
+        or raw.get("system")
+        or ""
+    )
+    if not system_prompt:
+        return None
+
+    # Outils activés
+    enabled_tools = raw.get("enabled_tools")
+    if enabled_tools is not None and not isinstance(enabled_tools, list):
+        enabled_tools = None
+
+    return {
+        "id": skill_id,
+        "name": name,
+        "description": raw.get("description", ""),
+        "icon": raw.get("icon") or raw.get("emoji") or "📦",
+        "system_prompt": system_prompt,
+        "enabled_tools": enabled_tools,
+        "temperature": float(raw.get("temperature", 0.7)),
+        "max_tokens": int(raw.get("max_tokens", 4096)),
+        "color": raw.get("color", "#6366f1"),
+    }
+
+
+@router.post("/import", status_code=201)
+async def import_skills(file: UploadFile = File(...)) -> dict:
+    """Importe des skills depuis un fichier JSON.
+
+    Accepte un tableau JSON de skills ou un objet unique.
+    Compatible avec les exports Claude et les formats personnalisés.
+    """
+    if not file.filename or not file.filename.lower().endswith(".json"):
+        raise HTTPException(status_code=400, detail="Fichier JSON attendu (.json)")
+
+    content = await file.read()
+    if len(content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Fichier trop volumineux (max 5 Mo)")
+
+    try:
+        data = json.loads(content.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        raise HTTPException(status_code=400, detail=f"JSON invalide: {e}")
+
+    # Accepte un tableau ou un objet unique
+    if isinstance(data, dict):
+        # Si c'est un objet avec une clé qui contient un tableau (ex: {"skills": [...]})
+        for key in ("skills", "personas", "agents", "items", "data"):
+            if key in data and isinstance(data[key], list):
+                data = data[key]
+                break
+        else:
+            data = [data]
+
+    if not isinstance(data, list):
+        raise HTTPException(status_code=400, detail="Format attendu: tableau JSON ou objet avec clé 'skills'")
+
+    imported = []
+    skipped = []
+    errors = []
+
+    for i, raw in enumerate(data):
+        if not isinstance(raw, dict):
+            errors.append({"index": i, "error": "Entrée non-objet ignorée"})
+            continue
+
+        skill = _normalize_skill(raw, i)
+        if skill is None:
+            skipped.append({"index": i, "name": raw.get("name", "?"), "reason": "Pas de prompt/contenu"})
+            continue
+
+        skill_id = skill["id"]
+        path = _skill_path(skill_id)
+
+        # Si l'ID existe déjà, suffit avec un compteur
+        if path.exists():
+            counter = 2
+            while _skill_path(f"{skill_id}-{counter}").exists():
+                counter += 1
+            skill_id = f"{skill_id}-{counter}"
+            skill["id"] = skill_id
+            path = _skill_path(skill_id)
+
+        try:
+            yaml_data = {k: v for k, v in skill.items() if k != "id"}
+            async with aiofiles.open(path, "w", encoding="utf-8") as f:
+                await f.write(yaml.dump(yaml_data, allow_unicode=True, default_flow_style=False))
+            imported.append({"id": skill_id, "name": skill["name"]})
+        except Exception as e:
+            errors.append({"index": i, "name": skill["name"], "error": str(e)})
+
+    return {
+        "imported": len(imported),
+        "skipped": len(skipped),
+        "errors": len(errors),
+        "details": {
+            "imported": imported,
+            "skipped": skipped,
+            "errors": errors,
+        },
+    }

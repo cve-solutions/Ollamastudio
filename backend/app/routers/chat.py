@@ -12,8 +12,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.loop import agentic_loop
-from app.config import settings
 from app.database import Message, Session, get_db
+from app.services.settings import get_setting_value
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -22,7 +22,7 @@ router = APIRouter()
 class ChatRequest(BaseModel):
     session_id: int
     content: str
-    model: str = settings.ollama_default_model
+    model: str = "qwen3-coder"
     ollama_base_url: str | None = None
     ollama_api_mode: str | None = None
     enabled_tools: list[str] | None = None   # None = tous, [] = aucun
@@ -44,7 +44,7 @@ async def _get_history(session_id: int, db: AsyncSession) -> tuple[list[dict], s
         select(Message)
         .where(Message.session_id == session_id)
         .order_by(Message.id)
-        .limit(settings.max_messages_per_session)
+        .limit(await get_setting_value("max_messages_per_session", 500))
     )
     msgs = result.scalars().all()
 

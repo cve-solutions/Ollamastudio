@@ -16,7 +16,7 @@ services:
       - WORKSPACE_ROOT=/app/workspace
       - DATA_DIR=/app/data
       - DOCUMENTS_DIR=/app/documents
-      - CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+      - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000"]
       - SHELL_TIMEOUT=30
     extra_hosts:
       - "host.docker.internal:host-gateway"

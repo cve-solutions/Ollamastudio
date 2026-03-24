@@ -8,7 +8,6 @@ from pydantic import BaseModel
 from sqlalchemy import delete, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.database import Message, Session, get_db
 
 router = APIRouter()
@@ -16,7 +15,7 @@ router = APIRouter()
 
 class SessionCreate(BaseModel):
     title: str = "Nouvelle session"
-    model: str = settings.ollama_default_model
+    model: str = "qwen3-coder"
     skill_id: str | None = None
 
 

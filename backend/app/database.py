@@ -66,14 +66,16 @@ class DocumentChunk(Base):
     tokens: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
-class OllamaConfig(Base):
-    """Configuration Ollama persistée (URL, modèle par défaut, etc.)."""
-    __tablename__ = "ollama_config"
+class AppSetting(Base):
+    """Paramètre applicatif persisté (clé/valeur dynamique)."""
+    __tablename__ = "app_settings"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
-    base_url: Mapped[str] = mapped_column(String(512), nullable=False)
-    api_mode: Mapped[str] = mapped_column(String(32), default="openai")
-    default_model: Mapped[str] = mapped_column(String(128), nullable=False)
+    key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    category: Mapped[str] = mapped_column(String(64), nullable=False, default="general")
+    label: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    value_type: Mapped[str] = mapped_column(String(32), nullable=False, default="string")  # string|int|bool|json
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )

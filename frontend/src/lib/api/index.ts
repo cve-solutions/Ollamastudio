@@ -186,6 +186,17 @@ export interface Skill {
   color: string;
 }
 
+export interface SkillImportResult {
+  imported: number;
+  skipped: number;
+  errors: number;
+  details: {
+    imported: { id: string; name: string }[];
+    skipped: { index: number; name: string; reason: string }[];
+    errors: { index: number; name?: string; error: string }[];
+  };
+}
+
 export const skillsApi = {
   list: () => api<Skill[]>('/api/skills/'),
   get: (id: string) => api<Skill>(`/api/skills/${id}`),
@@ -195,6 +206,19 @@ export const skillsApi = {
     api<Skill>(`/api/skills/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: string) =>
     fetch(`${BASE}/api/skills/${id}`, { method: 'DELETE' }),
+  importJson: async (file: File): Promise<SkillImportResult> => {
+    const form = new FormData();
+    form.append('file', file);
+    const resp = await fetch(`${BASE}/api/skills/import`, {
+      method: 'POST',
+      body: form,
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+      throw new Error(err.detail || `Erreur ${resp.status}`);
+    }
+    return resp.json();
+  },
 };
 
 // ── Documents ────────────────────────────────────────────────────────────────
@@ -222,6 +246,44 @@ export const documentsApi = {
     }),
   delete: (id: number) =>
     fetch(`${BASE}/api/documents/${id}`, { method: 'DELETE' }),
+};
+
+// ── Settings (Paramètres persistés en BDD) ──────────────────────────────────
+
+export interface AppSetting {
+  key: string;
+  value: unknown;
+  category: string;
+  label: string;
+  description: string;
+  value_type: string;
+}
+
+export interface ConnectionTestResult {
+  connected: boolean;
+  model_count: number;
+  models: ModelInfo[];
+}
+
+export const settingsApi = {
+  list: () => api<AppSetting[]>('/api/settings/'),
+  byCategory: (category: string) => api<AppSetting[]>(`/api/settings/category/${category}`),
+  get: (key: string) => api<{ key: string; value: unknown }>(`/api/settings/${key}`),
+  update: (key: string, value: unknown) =>
+    api<AppSetting>(`/api/settings/${key}`, {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
+    }),
+  bulkUpdate: (settings: Record<string, unknown>) =>
+    api<AppSetting[]>('/api/settings/', {
+      method: 'PUT',
+      body: JSON.stringify({ settings }),
+    }),
+  testConnection: (base_url: string) =>
+    api<ConnectionTestResult>('/api/settings/ollama/test-connection', {
+      method: 'POST',
+      body: JSON.stringify({ base_url }),
+    }),
 };
 
 // ── MCP ───────────────────────────────────────────────────────────────────────

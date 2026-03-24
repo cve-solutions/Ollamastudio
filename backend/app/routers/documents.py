@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import Document, DocumentChunk, get_db
+from app.services.settings import get_setting_value
 from app.services.document_processor import process_file
 
 logger = logging.getLogger(__name__)
@@ -66,7 +67,8 @@ async def upload_documents(
             continue
 
         content_bytes = await file.read()
-        if len(content_bytes) > settings.max_file_size:
+        max_file_size = await get_setting_value("max_file_size", 10 * 1024 * 1024)
+        if len(content_bytes) > max_file_size:
             errors.append({"file": file.filename, "error": "Fichier trop volumineux"})
             continue
 
@@ -125,7 +127,8 @@ async def import_folder(
         if path.suffix.lower() not in TEXT_EXTENSIONS:
             skipped += 1
             continue
-        if path.stat().st_size > settings.max_file_size:
+        max_file_size = await get_setting_value("max_file_size", 10 * 1024 * 1024)
+        if path.stat().st_size > max_file_size:
             errors.append({"file": str(path), "error": "Trop volumineux"})
             continue
 
@@ -212,7 +215,9 @@ async def _index_text(
     from app.services.document_processor import chunk_text
 
     mime = mimetypes.guess_type(filename)[0] or "text/plain"
-    chunks = chunk_text(text, settings.chunk_size, settings.chunk_overlap)
+    chunk_size = await get_setting_value("chunk_size", 1500)
+    chunk_overlap = await get_setting_value("chunk_overlap", 150)
+    chunks = chunk_text(text, chunk_size, chunk_overlap)
 
     doc = Document(
         filename=filename,
