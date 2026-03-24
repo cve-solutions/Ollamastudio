@@ -94,12 +94,19 @@
       }
     };
 
-    ws.onclose = () => {
-      terminal?.writeln('\n\x1b[31m● Connexion fermée\x1b[0m');
+    ws.onclose = (ev) => {
+      const reason = ev.reason ? ` (${ev.reason})` : '';
+      terminal?.writeln(`\n\x1b[31m● Connexion fermée [code=${ev.code}]${reason}\x1b[0m`);
+      terminal?.writeln(`\x1b[90m  URL: ${WS_URL}\x1b[0m`);
+      terminal?.writeln(`\x1b[90m  Cliquez "Reconnecter" pour réessayer\x1b[0m`);
+      console.warn('[Terminal WS] close', { code: ev.code, reason: ev.reason, wasClean: ev.wasClean, url: WS_URL });
     };
 
-    ws.onerror = () => {
-      terminal?.writeln('\n\x1b[31m● Erreur de connexion WebSocket\x1b[0m');
+    ws.onerror = (ev) => {
+      terminal?.writeln(`\n\x1b[31m● Erreur de connexion WebSocket\x1b[0m`);
+      terminal?.writeln(`\x1b[90m  URL: ${WS_URL}\x1b[0m`);
+      terminal?.writeln(`\x1b[90m  Vérifiez que le backend est démarré et accessible\x1b[0m`);
+      console.error('[Terminal WS] error', ev, { url: WS_URL });
     };
   }
 

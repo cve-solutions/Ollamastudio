@@ -8,6 +8,7 @@ from typing import AsyncGenerator
 import httpx
 
 from app.services.settings import get_setting_value
+from app.services.debug import debug_buffer
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,7 @@ class OllamaClient:
         else:
             self.api_mode = await get_setting_value("ollama_api_mode", "openai")
         self._resolved = True
+        debug_buffer.log("DEBUG", "ollama", f"Client résolu: {self.base_url} mode={self.api_mode}")
 
     # ------------------------------------------------------------------
     # Liste des modèles disponibles
@@ -44,11 +46,18 @@ class OllamaClient:
     async def list_models(self) -> list[dict]:
         """Retourne la liste des modèles Ollama disponibles."""
         await self._resolve()
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(f"{self.base_url}/api/tags")
-            resp.raise_for_status()
-            data = resp.json()
-            return data.get("models", [])
+        debug_buffer.log("DEBUG", "ollama", f"GET {self.base_url}/api/tags")
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(f"{self.base_url}/api/tags")
+                resp.raise_for_status()
+                data = resp.json()
+                models = data.get("models", [])
+                debug_buffer.log("INFO", "ollama", f"Modèles trouvés: {len(models)}")
+                return models
+        except Exception as e:
+            debug_buffer.log("ERROR", "ollama", f"Échec list_models: {e}", url=f"{self.base_url}/api/tags", error=str(e))
+            raise
 
     # ------------------------------------------------------------------
     # Streaming chat — mode OpenAI
@@ -146,6 +155,8 @@ class OllamaClient:
     ) -> AsyncGenerator[str, None]:
         """Stream unifié — délègue selon api_mode."""
         await self._resolve()
+        debug_buffer.log("INFO", "ollama",
+                         f"stream_chat model={model} mode={self.api_mode} msgs={len(messages)} tools={len(tools or [])}")
         if self.api_mode == "anthropic":
             async for chunk in self._stream_anthropic(
                 model, messages, tools, system, temperature, max_tokens
@@ -191,7 +202,8 @@ def _anthropic_event_to_openai(data: str) -> str | None:
     """Normalise un event SSE Anthropic vers le format OpenAI delta."""
     try:
         evt = json.loads(data)
-    except (json.JSONDecodeError, ValueError):
+    except (json.JSONDecodeError, ValueError) as e:
+        debug_buffer.log("WARN", "ollama", f"Event SSE Anthropic non-JSON: {e}", raw=data[:200])
         return None
 
     event_type = evt.get("type")
@@ -237,7 +249,8 @@ def _merge_chunks(chunks: list[str]) -> dict:
     for raw in chunks:
         try:
             data = json.loads(raw)
-        except (json.JSONDecodeError, ValueError):
+        except (json.JSONDecodeError, ValueError) as e:
+            debug_buffer.log("WARN", "ollama", f"Chunk non-JSON dans merge: {e}", raw=raw[:200])
             continue
         for choice in data.get("choices", []):
             delta = choice.get("delta", {})

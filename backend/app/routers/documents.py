@@ -16,6 +16,7 @@ from app.config import settings
 from app.database import Document, DocumentChunk, get_db
 from app.services.settings import get_setting_value
 from app.services.document_processor import process_file
+from app.services.debug import debug_buffer
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -55,6 +56,7 @@ async def upload_documents(
     files: list[UploadFile] = File(...),
 ) -> dict:
     """Upload et indexe un ou plusieurs fichiers."""
+    debug_buffer.log("INFO", "import", f"Upload de {len(files)} fichier(s)")
     imported = []
     errors = []
 
@@ -63,31 +65,43 @@ async def upload_documents(
             continue
         ext = Path(file.filename).suffix.lower()
         if ext not in TEXT_EXTENSIONS:
-            errors.append({"file": file.filename, "error": f"Extension non supportée: {ext}"})
+            msg = f"Extension non supportée: {ext}"
+            debug_buffer.log("WARN", "import", f"Fichier {file.filename} rejeté: {msg}")
+            errors.append({"file": file.filename, "error": msg})
             continue
 
         content_bytes = await file.read()
         max_file_size = await get_setting_value("max_file_size", 10 * 1024 * 1024)
         if len(content_bytes) > max_file_size:
-            errors.append({"file": file.filename, "error": "Fichier trop volumineux"})
+            msg = f"Fichier trop volumineux ({len(content_bytes)} > {max_file_size})"
+            debug_buffer.log("WARN", "import", f"Fichier {file.filename}: {msg}")
+            errors.append({"file": file.filename, "error": msg})
             continue
 
         try:
             text = content_bytes.decode("utf-8", errors="replace")
         except Exception as e:
+            debug_buffer.log("ERROR", "import", f"Décodage UTF-8 échoué pour {file.filename}: {e}")
             errors.append({"file": file.filename, "error": str(e)})
             continue
 
         # Sauvegarde physique
         dest = settings.documents_dir / file.filename
         dest.parent.mkdir(parents=True, exist_ok=True)
+        debug_buffer.log("DEBUG", "import", f"Sauvegarde physique: {dest}")
         async with aiofiles.open(dest, "wb") as f:
             await f.write(content_bytes)
 
         # Chunking et persistance
-        result = await _index_text(db, file.filename, file.filename, text, len(content_bytes))
-        imported.append(result)
+        try:
+            result = await _index_text(db, file.filename, file.filename, text, len(content_bytes))
+            debug_buffer.log("INFO", "import", f"Indexé: {file.filename} → {result['chunks']} chunks")
+            imported.append(result)
+        except Exception as e:
+            debug_buffer.log("ERROR", "import", f"Indexation échouée pour {file.filename}: {e}", error=str(e))
+            errors.append({"file": file.filename, "error": f"Indexation: {e}"})
 
+    debug_buffer.log("INFO", "import", f"Upload terminé: {len(imported)} importés, {len(errors)} erreurs")
     return {"imported": imported, "errors": errors}
 
 
@@ -102,34 +116,47 @@ async def import_folder(
 ) -> dict:
     """Importe récursivement un dossier entier depuis le système de fichiers du serveur."""
     folder = Path(body.folder_path).resolve()
+    debug_buffer.log("INFO", "import", f"Import dossier demandé: {body.folder_path} → résolu: {folder}")
 
     # Sécurité : le dossier doit être dans documents_dir ou workspace_root
     allowed_roots = [
         settings.documents_dir.resolve(),
         settings.workspace_root.resolve(),
     ]
-    if not any(str(folder).startswith(str(root)) for root in allowed_roots):
-        raise HTTPException(
-            status_code=403,
-            detail="Dossier hors des répertoires autorisés (documents/ ou workspace/)"
-        )
+    debug_buffer.log("DEBUG", "import", f"Racines autorisées: {[str(r) for r in allowed_roots]}")
 
-    if not folder.exists() or not folder.is_dir():
-        raise HTTPException(status_code=404, detail="Dossier inexistant")
+    if not any(str(folder).startswith(str(root)) for root in allowed_roots):
+        msg = f"Dossier {folder} hors des répertoires autorisés"
+        debug_buffer.log("ERROR", "import", msg, allowed_roots=[str(r) for r in allowed_roots])
+        raise HTTPException(status_code=403, detail="Dossier hors des répertoires autorisés (documents/ ou workspace/)")
+
+    if not folder.exists():
+        debug_buffer.log("ERROR", "import", f"Dossier inexistant: {folder}")
+        raise HTTPException(status_code=404, detail=f"Dossier inexistant: {folder}")
+    if not folder.is_dir():
+        debug_buffer.log("ERROR", "import", f"Pas un dossier: {folder}")
+        raise HTTPException(status_code=404, detail=f"Ce n'est pas un dossier: {folder}")
 
     imported = []
     errors = []
     skipped = 0
 
-    for path in sorted(folder.rglob("*")):
+    all_files = sorted(folder.rglob("*"))
+    debug_buffer.log("DEBUG", "import", f"Trouvé {len(all_files)} entrées dans {folder}")
+
+    for path in all_files:
         if not path.is_file():
             continue
         if path.suffix.lower() not in TEXT_EXTENSIONS:
             skipped += 1
+            debug_buffer.log("DEBUG", "import", f"Ignoré (extension): {path.name} ({path.suffix})")
             continue
         max_file_size = await get_setting_value("max_file_size", 10 * 1024 * 1024)
-        if path.stat().st_size > max_file_size:
-            errors.append({"file": str(path), "error": "Trop volumineux"})
+        file_size = path.stat().st_size
+        if file_size > max_file_size:
+            msg = f"Trop volumineux ({file_size} > {max_file_size})"
+            debug_buffer.log("WARN", "import", f"{path.name}: {msg}")
+            errors.append({"file": str(path), "error": msg})
             continue
 
         try:
@@ -137,12 +164,15 @@ async def import_folder(
                 text = await f.read()
 
             rel_path = str(path.relative_to(folder))
-            result = await _index_text(db, path.name, rel_path, text, path.stat().st_size)
+            result = await _index_text(db, path.name, rel_path, text, file_size)
+            debug_buffer.log("DEBUG", "import", f"Indexé: {rel_path} → {result['chunks']} chunks")
             imported.append(result)
 
         except Exception as e:
+            debug_buffer.log("ERROR", "import", f"Erreur fichier {path}: {e}", error=str(e), error_type=type(e).__name__)
             errors.append({"file": str(path), "error": str(e)})
 
+    debug_buffer.log("INFO", "import", f"Import dossier terminé: {len(imported)} importés, {skipped} ignorés, {len(errors)} erreurs")
     return {
         "folder": str(folder),
         "imported": len(imported),

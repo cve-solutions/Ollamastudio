@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
 from app.config import settings
+from app.services.debug import debug_buffer
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -280,16 +281,21 @@ async def import_skills(file: UploadFile = File(...)) -> dict:
     Accepte un tableau JSON de skills ou un objet unique.
     Compatible avec les exports Claude et les formats personnalisés.
     """
+    debug_buffer.log("INFO", "skill", f"Import skills depuis fichier: {file.filename}")
+
     if not file.filename or not file.filename.lower().endswith(".json"):
+        debug_buffer.log("ERROR", "skill", f"Fichier rejeté: extension non-JSON ({file.filename})")
         raise HTTPException(status_code=400, detail="Fichier JSON attendu (.json)")
 
     content = await file.read()
+    debug_buffer.log("DEBUG", "skill", f"Fichier lu: {len(content)} octets")
     if len(content) > 5 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Fichier trop volumineux (max 5 Mo)")
 
     try:
         data = json.loads(content.decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        debug_buffer.log("ERROR", "skill", f"JSON invalide: {e}", raw_preview=content[:200].decode("utf-8", errors="replace"))
         raise HTTPException(status_code=400, detail=f"JSON invalide: {e}")
 
     # Accepte un tableau ou un objet unique
@@ -297,10 +303,14 @@ async def import_skills(file: UploadFile = File(...)) -> dict:
         # Si c'est un objet avec une clé qui contient un tableau (ex: {"skills": [...]})
         for key in ("skills", "personas", "agents", "items", "data"):
             if key in data and isinstance(data[key], list):
+                debug_buffer.log("DEBUG", "skill", f"Format détecté: objet avec clé '{key}' ({len(data[key])} entrées)")
                 data = data[key]
                 break
         else:
+            debug_buffer.log("DEBUG", "skill", "Format détecté: objet unique")
             data = [data]
+    else:
+        debug_buffer.log("DEBUG", "skill", f"Format détecté: tableau de {len(data)} entrées")
 
     if not isinstance(data, list):
         raise HTTPException(status_code=400, detail="Format attendu: tableau JSON ou objet avec clé 'skills'")
@@ -311,11 +321,14 @@ async def import_skills(file: UploadFile = File(...)) -> dict:
 
     for i, raw in enumerate(data):
         if not isinstance(raw, dict):
+            debug_buffer.log("WARN", "skill", f"Entrée #{i}: non-objet ignoré (type={type(raw).__name__})")
             errors.append({"index": i, "error": "Entrée non-objet ignorée"})
             continue
 
         skill = _normalize_skill(raw, i)
         if skill is None:
+            debug_buffer.log("WARN", "skill", f"Entrée #{i} ({raw.get('name', '?')}): pas de prompt → ignorée",
+                             keys=list(raw.keys()))
             skipped.append({"index": i, "name": raw.get("name", "?"), "reason": "Pas de prompt/contenu"})
             continue
 
@@ -327,18 +340,23 @@ async def import_skills(file: UploadFile = File(...)) -> dict:
             counter = 2
             while _skill_path(f"{skill_id}-{counter}").exists():
                 counter += 1
+            old_id = skill_id
             skill_id = f"{skill_id}-{counter}"
             skill["id"] = skill_id
             path = _skill_path(skill_id)
+            debug_buffer.log("DEBUG", "skill", f"ID collision: {old_id} → {skill_id}")
 
         try:
             yaml_data = {k: v for k, v in skill.items() if k != "id"}
             async with aiofiles.open(path, "w", encoding="utf-8") as f:
                 await f.write(yaml.dump(yaml_data, allow_unicode=True, default_flow_style=False))
+            debug_buffer.log("INFO", "skill", f"Skill importée: {skill_id} ({skill['name']})")
             imported.append({"id": skill_id, "name": skill["name"]})
         except Exception as e:
+            debug_buffer.log("ERROR", "skill", f"Écriture échouée pour {skill_id}: {e}", error=str(e))
             errors.append({"index": i, "name": skill["name"], "error": str(e)})
 
+    debug_buffer.log("INFO", "skill", f"Import terminé: {len(imported)} importés, {len(skipped)} ignorés, {len(errors)} erreurs")
     return {
         "imported": len(imported),
         "skipped": len(skipped),

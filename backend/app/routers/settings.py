@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.services.debug import debug_buffer
 from app.services.settings import (
     bulk_update_settings,
     get_all_settings,
@@ -47,7 +48,16 @@ async def bulk_update(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> list[dict]:
     """Met à jour plusieurs paramètres en une fois."""
-    return await bulk_update_settings(db, body.settings)
+    import logging as _logging
+    result = await bulk_update_settings(db, body.settings)
+
+    # Synchronise le mode debug si modifié
+    if "debug_mode" in body.settings:
+        enabled = body.settings["debug_mode"] in (True, "true", "1")
+        debug_buffer.enabled = enabled
+        _logging.getLogger().setLevel(_logging.DEBUG if enabled else _logging.INFO)
+
+    return result
 
 
 # ── Test de connexion Ollama ─────────────────────────────────────────────────
@@ -56,12 +66,14 @@ async def bulk_update(
 async def test_ollama_connection(body: ConnectionTestRequest) -> dict:
     """Teste la connexion à un serveur Ollama et retourne les modèles disponibles."""
     base_url = body.base_url.rstrip("/")
+    debug_buffer.log("INFO", "ollama", f"Test connexion: {base_url}")
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(f"{base_url}/api/tags")
             resp.raise_for_status()
             data = resp.json()
             models = data.get("models", [])
+            debug_buffer.log("INFO", "ollama", f"Connexion OK: {len(models)} modèle(s) trouvés sur {base_url}")
             return {
                 "connected": True,
                 "model_count": len(models),
@@ -75,17 +87,20 @@ async def test_ollama_connection(body: ConnectionTestRequest) -> dict:
                     for m in models
                 ],
             }
-    except httpx.ConnectError:
+    except httpx.ConnectError as e:
+        debug_buffer.log("ERROR", "ollama", f"Connexion impossible à {base_url}: {e}", error=str(e))
         raise HTTPException(
             status_code=503,
             detail=f"Impossible de se connecter à {base_url} — serveur inaccessible",
         )
     except httpx.HTTPStatusError as e:
+        debug_buffer.log("ERROR", "ollama", f"Erreur HTTP {e.response.status_code} depuis {base_url}", error=str(e))
         raise HTTPException(
             status_code=503,
             detail=f"Serveur Ollama a répondu avec une erreur: {e.response.status_code}",
         )
     except Exception as e:
+        debug_buffer.log("ERROR", "ollama", f"Erreur connexion {base_url}: {type(e).__name__}: {e}", error=str(e))
         raise HTTPException(
             status_code=503,
             detail=f"Erreur de connexion: {e}",

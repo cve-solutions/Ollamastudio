@@ -16,6 +16,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from app.config import settings
+from app.services.debug import debug_buffer
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -35,6 +36,7 @@ class ShellSession:
 
     async def start(self) -> None:
         """Lance le processus shell avec PTY."""
+        debug_buffer.log("INFO", "ws", f"Démarrage session shell PTY dans {self.cwd}")
         env = {
             **os.environ,
             "TERM": "xterm-256color",
@@ -114,34 +116,39 @@ class ShellSession:
             try:
                 import fcntl
                 fcntl.ioctl(self.master_fd, termios.TIOCSWINSZ, size)
-            except Exception:
-                pass
+                debug_buffer.log("DEBUG", "ws", f"Terminal resize {rows}x{cols}")
+            except Exception as e:
+                debug_buffer.log("WARN", "ws", f"Échec resize terminal: {e}", error=str(e))
         elif cmd == "signal" and self.pid is not None:
             sig_name = ctrl.get("signal", "SIGINT")
             sig = getattr(signal, sig_name, signal.SIGINT)
             try:
                 os.kill(self.pid, sig)
+                debug_buffer.log("DEBUG", "ws", f"Signal {sig_name} envoyé au PID {self.pid}")
             except ProcessLookupError:
-                pass
+                debug_buffer.log("WARN", "ws", f"Processus {self.pid} introuvable pour signal {sig_name}")
 
     def cleanup(self) -> None:
         """Tue le processus et ferme le fd."""
+        debug_buffer.log("DEBUG", "ws", f"Nettoyage session shell PID={self.pid} FD={self.master_fd}")
         if self.pid:
             try:
                 os.kill(self.pid, signal.SIGTERM)
                 os.waitpid(self.pid, os.WNOHANG)
-            except (ProcessLookupError, ChildProcessError):
-                pass
+            except (ProcessLookupError, ChildProcessError) as e:
+                debug_buffer.log("WARN", "ws", f"Cleanup PID {self.pid}: {e}")
         if self.master_fd:
             try:
                 os.close(self.master_fd)
-            except OSError:
-                pass
+            except OSError as e:
+                debug_buffer.log("WARN", "ws", f"Cleanup FD {self.master_fd}: {e}")
 
 
 @router.websocket("/ws")
 async def shell_websocket(ws: WebSocket) -> None:
     """WebSocket terminal — compatible xterm.js."""
+    client = ws.client
+    debug_buffer.log("INFO", "ws", f"Nouvelle connexion WebSocket shell depuis {client}")
     await ws.accept()
     cwd = str(settings.workspace_root)
     session = ShellSession(ws, cwd)
@@ -149,15 +156,17 @@ async def shell_websocket(ws: WebSocket) -> None:
         await session.start()
     except WebSocketDisconnect:
         logger.info("Client shell déconnecté")
+        debug_buffer.log("INFO", "ws", "Client shell déconnecté proprement")
     except Exception as e:
         logger.exception("Erreur session shell: %s", e)
+        debug_buffer.log("ERROR", "ws", f"Erreur session shell: {e}", error=str(e), error_type=type(e).__name__)
         try:
             await ws.send_text(f"\r\n\033[31m[Erreur shell: {e}]\033[0m\r\n")
-        except Exception:
-            pass
+        except Exception as send_err:
+            debug_buffer.log("WARN", "ws", f"Impossible d'envoyer l'erreur au client: {send_err}")
     finally:
         session.cleanup()
         try:
             await ws.close()
-        except Exception:
-            pass
+        except Exception as close_err:
+            debug_buffer.log("WARN", "ws", f"Erreur fermeture WebSocket: {close_err}")

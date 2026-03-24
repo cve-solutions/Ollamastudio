@@ -110,6 +110,11 @@ export function toast(type: Toast['type'], message: string, duration = 3500) {
 
 export const selectedModel = writable<string>('qwen3-coder');
 
+// ── Debug mode ───────────────────────────────────────────────────────────────
+
+export const debugMode = writable(false);
+export const showDebugPanel = writable(false);
+
 // ── Terminal WebSocket URL ────────────────────────────────────────────────────
 
 export const wsTerminalUrl = derived(

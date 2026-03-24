@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { ollamaConfig, showSettings, models, modelsLoading, selectedModel, toast, appSettings } from '$lib/stores';
-  import { settingsApi, modelsApi } from '$lib/api';
-  import type { AppSetting, ModelInfo } from '$lib/api';
+  import { ollamaConfig, showSettings, models, modelsLoading, selectedModel, toast, appSettings, debugMode } from '$lib/stores';
+  import { settingsApi, modelsApi, debugApi } from '$lib/api';
+  import type { AppSetting, ModelInfo, DebugEntry } from '$lib/api';
   import { get } from 'svelte/store';
 
-  type TabId = 'ollama' | 'security' | 'documents' | 'sessions' | 'mcp';
+  type TabId = 'ollama' | 'security' | 'documents' | 'sessions' | 'mcp' | 'debug';
 
   const TABS: { id: TabId; label: string; icon: string }[] = [
     { id: 'ollama',    label: 'Ollama',     icon: '🤖' },
@@ -12,6 +12,7 @@
     { id: 'documents', label: 'Documents',  icon: '📚' },
     { id: 'sessions',  label: 'Sessions',   icon: '💬' },
     { id: 'mcp',       label: 'MCP',        icon: '🔌' },
+    { id: 'debug',     label: 'Debug',      icon: '🐛' },
   ];
 
   let activeTab = $state<TabId>('ollama');
@@ -22,6 +23,10 @@
   let testing = $state(false);
   let testResult = $state<{ ok: boolean; message: string } | null>(null);
   let testModels = $state<ModelInfo[]>([]);
+  let debugLogs = $state<DebugEntry[]>([]);
+  let debugLoading = $state(false);
+  let debugFilter = $state<string>('');
+  let debugLevelFilter = $state<string>('');
 
   // Initialize from appSettings store
   const currentSettings = get(appSettings);
@@ -89,6 +94,36 @@
     } finally {
       saving = false;
     }
+  }
+
+  async function loadDebugLogs() {
+    debugLoading = true;
+    try {
+      const result = await debugApi.getLogs(
+        200,
+        debugFilter || undefined,
+        debugLevelFilter || undefined,
+      );
+      debugLogs = result.entries;
+    } catch (e) {
+      toast('error', `Erreur chargement logs: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      debugLoading = false;
+    }
+  }
+
+  async function clearDebugLogs() {
+    try {
+      await debugApi.clear();
+      debugLogs = [];
+      toast('success', 'Logs debug vidés');
+    } catch (e) {
+      toast('error', `Erreur: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+
+  function formatTs(ts: number): string {
+    return new Date(ts * 1000).toLocaleTimeString('fr-FR', { hour12: false, fractionalSecondDigits: 1 });
   }
 
   function close() { showSettings.set(false); }
@@ -348,6 +383,73 @@
         <p class="info-title">Serveurs MCP</p>
         <p class="info-text">La gestion des serveurs MCP (ajout, suppression, activation) se fait depuis l'onglet MCP de l'interface principale.</p>
       </div>
+
+    <!-- ═══════════════════════════ DEBUG ═══════════════════════════ -->
+    {:else if activeTab === 'debug'}
+      <div class="section-title">Mode debug</div>
+
+      <label class="field debug-toggle-field">
+        <span class="field-label">Activer le mode debug</span>
+        <div class="toggle-row">
+          <button
+            class="toggle-btn {localSettings['debug_mode'] ? 'on' : 'off'}"
+            onclick={() => localSettings['debug_mode'] = !localSettings['debug_mode']}
+          >
+            {localSettings['debug_mode'] ? 'ACTIF' : 'INACTIF'}
+          </button>
+          <span class="field-hint">
+            {localSettings['debug_mode']
+              ? 'Toutes les actions sont tracées (requêtes HTTP, WebSocket, imports, Ollama)'
+              : 'Seules les erreurs sont tracées'}
+          </span>
+        </div>
+      </label>
+
+      <div class="debug-toolbar">
+        <select class="input debug-select" bind:value={debugFilter}>
+          <option value="">Toutes catégories</option>
+          <option value="http">HTTP</option>
+          <option value="ws">WebSocket</option>
+          <option value="import">Import docs</option>
+          <option value="skill">Skills</option>
+          <option value="ollama">Ollama</option>
+          <option value="chat">Chat</option>
+          <option value="error">Erreurs</option>
+          <option value="debug">Debug</option>
+        </select>
+        <select class="input debug-select" bind:value={debugLevelFilter}>
+          <option value="">Tous niveaux</option>
+          <option value="ERROR">ERROR</option>
+          <option value="WARN">WARN</option>
+          <option value="INFO">INFO</option>
+          <option value="DEBUG">DEBUG</option>
+        </select>
+        <button class="btn btn-ghost" onclick={loadDebugLogs} disabled={debugLoading}>
+          {debugLoading ? 'Chargement…' : 'Charger logs'}
+        </button>
+        <button class="btn btn-ghost" onclick={clearDebugLogs}>Vider</button>
+      </div>
+
+      <div class="debug-log-container">
+        {#if debugLogs.length === 0}
+          <p class="debug-empty">Aucun log.{localSettings['debug_mode'] ? ' Cliquez "Charger logs" pour rafraîchir.' : ' Activez le mode debug puis sauvegardez.'}</p>
+        {:else}
+          {#each debugLogs as entry}
+            <div class="debug-entry level-{entry.level.toLowerCase()}">
+              <span class="debug-ts">{formatTs(entry.timestamp)}</span>
+              <span class="debug-level">{entry.level}</span>
+              <span class="debug-cat">{entry.category}</span>
+              <span class="debug-msg">{entry.message}</span>
+              {#if Object.keys(entry.details).length > 0}
+                <details class="debug-details">
+                  <summary>détails</summary>
+                  <pre>{JSON.stringify(entry.details, null, 2)}</pre>
+                </details>
+              {/if}
+            </div>
+          {/each}
+        {/if}
+      </div>
     {/if}
   </div>
 
@@ -556,6 +658,127 @@
   .footer-actions {
     display: flex;
     gap: 8px;
+  }
+
+  /* ── Debug ─────────────────────────────────────────── */
+  .debug-toggle-field { gap: 6px; }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .toggle-btn {
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .toggle-btn.on {
+    background: rgba(74, 222, 128, 0.2);
+    color: #4ade80;
+    border-color: #4ade80;
+  }
+  .toggle-btn.off {
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+  }
+
+  .debug-toolbar {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .debug-select {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 130px;
+    font-size: 11px;
+    padding: 5px 8px;
+  }
+
+  .debug-log-container {
+    background: #0d0d0f;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px;
+    max-height: 280px;
+    overflow-y: auto;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.5;
+  }
+
+  .debug-empty {
+    color: var(--text-muted);
+    text-align: center;
+    padding: 20px;
+    font-size: 12px;
+  }
+
+  .debug-entry {
+    display: flex;
+    gap: 6px;
+    align-items: baseline;
+    padding: 2px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    flex-wrap: wrap;
+  }
+
+  .debug-ts {
+    color: #5a5a72;
+    flex-shrink: 0;
+  }
+
+  .debug-level {
+    font-weight: 700;
+    flex-shrink: 0;
+    min-width: 42px;
+  }
+  .level-error .debug-level { color: #f87171; }
+  .level-warn .debug-level  { color: #fbbf24; }
+  .level-info .debug-level  { color: #4ade80; }
+  .level-debug .debug-level { color: #7c6ff7; }
+
+  .debug-cat {
+    color: #2dd4bf;
+    flex-shrink: 0;
+    min-width: 50px;
+  }
+
+  .debug-msg {
+    color: #e8e8f0;
+    word-break: break-word;
+  }
+  .level-error .debug-msg { color: #fca5a5; }
+  .level-warn .debug-msg  { color: #fde68a; }
+
+  .debug-details {
+    width: 100%;
+    margin: 2px 0 4px 0;
+  }
+
+  .debug-details summary {
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 10px;
+  }
+
+  .debug-details pre {
+    color: #a5b4fc;
+    font-size: 10px;
+    white-space: pre-wrap;
+    margin: 4px 0 0 0;
+    padding: 4px 8px;
+    background: rgba(124, 111, 247, 0.05);
+    border-radius: 4px;
   }
 
   .db-badge {
