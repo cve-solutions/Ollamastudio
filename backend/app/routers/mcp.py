@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from app.config import settings
+from app.services.settings import get_setting_value
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -112,7 +113,7 @@ async def ping_server(server_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Serveur MCP introuvable")
 
     try:
-        async with httpx.AsyncClient(timeout=settings.mcp_timeout) as client:
+        async with httpx.AsyncClient(timeout=await get_setting_value("mcp_timeout", 30)) as client:
             resp = await client.get(server["url"])
             return {"reachable": True, "status": resp.status_code, "url": server["url"]}
     except Exception as e:
@@ -128,7 +129,7 @@ async def list_server_tools(server_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Serveur MCP introuvable")
 
     try:
-        async with httpx.AsyncClient(timeout=settings.mcp_timeout) as client:
+        async with httpx.AsyncClient(timeout=await get_setting_value("mcp_timeout", 30)) as client:
             resp = await client.post(
                 server["url"],
                 json={"jsonrpc": "2.0", "method": "tools/list", "id": 1},
@@ -149,7 +150,7 @@ async def call_tool(server_id: str, tool_name: str, arguments: dict) -> dict:
         raise HTTPException(status_code=404, detail="Serveur MCP introuvable")
 
     try:
-        async with httpx.AsyncClient(timeout=settings.mcp_timeout) as client:
+        async with httpx.AsyncClient(timeout=await get_setting_value("mcp_timeout", 30)) as client:
             resp = await client.post(
                 server["url"],
                 json={

@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.config import settings
+from app.services.settings import get_setting_value
 
 router = APIRouter()
 
@@ -68,7 +69,8 @@ async def read_file(path: str) -> dict:
         raise HTTPException(status_code=404, detail="Fichier inexistant")
     if target.is_dir():
         raise HTTPException(status_code=400, detail="C'est un répertoire")
-    if target.stat().st_size > settings.max_file_size:
+    max_file_size = await get_setting_value("max_file_size", 10 * 1024 * 1024)
+    if target.stat().st_size > max_file_size:
         raise HTTPException(status_code=413, detail="Fichier trop volumineux")
 
     async with aiofiles.open(target, encoding="utf-8", errors="replace") as f:
@@ -148,7 +150,8 @@ async def upload_file(path: str, file: UploadFile) -> dict:
     target = _safe_path(f"{path}/{file.filename}" if path != "." else file.filename or "upload")
     target.parent.mkdir(parents=True, exist_ok=True)
     content = await file.read()
-    if len(content) > settings.max_file_size:
+    max_file_size = await get_setting_value("max_file_size", 10 * 1024 * 1024)
+    if len(content) > max_file_size:
         raise HTTPException(status_code=413, detail="Fichier trop volumineux")
     async with aiofiles.open(target, "wb") as f:
         await f.write(content)

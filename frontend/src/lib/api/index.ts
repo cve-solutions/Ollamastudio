@@ -224,6 +224,44 @@ export const documentsApi = {
     fetch(`${BASE}/api/documents/${id}`, { method: 'DELETE' }),
 };
 
+// ── Settings (Paramètres persistés en BDD) ──────────────────────────────────
+
+export interface AppSetting {
+  key: string;
+  value: unknown;
+  category: string;
+  label: string;
+  description: string;
+  value_type: string;
+}
+
+export interface ConnectionTestResult {
+  connected: boolean;
+  model_count: number;
+  models: ModelInfo[];
+}
+
+export const settingsApi = {
+  list: () => api<AppSetting[]>('/api/settings/'),
+  byCategory: (category: string) => api<AppSetting[]>(`/api/settings/category/${category}`),
+  get: (key: string) => api<{ key: string; value: unknown }>(`/api/settings/${key}`),
+  update: (key: string, value: unknown) =>
+    api<AppSetting>(`/api/settings/${key}`, {
+      method: 'PUT',
+      body: JSON.stringify({ value }),
+    }),
+  bulkUpdate: (settings: Record<string, unknown>) =>
+    api<AppSetting[]>('/api/settings/', {
+      method: 'PUT',
+      body: JSON.stringify({ settings }),
+    }),
+  testConnection: (base_url: string) =>
+    api<ConnectionTestResult>('/api/settings/ollama/test-connection', {
+      method: 'POST',
+      body: JSON.stringify({ base_url }),
+    }),
+};
+
 // ── MCP ───────────────────────────────────────────────────────────────────────
 
 export interface McpServer {

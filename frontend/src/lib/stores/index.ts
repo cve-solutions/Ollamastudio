@@ -2,34 +2,29 @@
  * Stores globaux OllamaStudio — Svelte 5 avec $state runes.
  */
 import { writable, derived, get } from 'svelte/store';
-import type { Session, Message, Skill, ModelInfo } from '$api';
+import type { Session, Message, Skill, ModelInfo, AppSetting } from '$api';
 
-// ── Configuration Ollama ─────────────────────────────────────────────────────
+// ── Configuration Ollama (synchronisée avec la BDD) ─────────────────────────
 
 function createOllamaConfig() {
-  const stored = typeof localStorage !== 'undefined'
-    ? JSON.parse(localStorage.getItem('ollama_config') || '{}')
-    : {};
-
   const { subscribe, set, update } = writable({
-    base_url: stored.base_url || 'http://localhost:11434',
-    api_mode: stored.api_mode || 'openai',
-    default_model: stored.default_model || 'qwen3-coder',
+    base_url: 'http://localhost:11434',
+    api_mode: 'openai',
+    default_model: 'qwen3-coder',
   });
 
   return {
     subscribe,
-    set: (val: { base_url: string; api_mode: string; default_model: string }) => {
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem('ollama_config', JSON.stringify(val));
-      }
-      set(val);
-    },
+    set,
     update,
   };
 }
 
 export const ollamaConfig = createOllamaConfig();
+
+// ── Paramètres applicatifs (depuis BDD) ─────────────────────────────────────
+
+export const appSettings = writable<AppSetting[]>([]);
 
 // ── Modèles disponibles ───────────────────────────────────────────────────────
 

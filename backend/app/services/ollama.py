@@ -7,7 +7,7 @@ from typing import AsyncGenerator
 
 import httpx
 
-from app.config import settings
+from app.services.settings import get_setting_value
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +16,26 @@ class OllamaClient:
     """Client HTTP async vers Ollama avec support des deux modes API."""
 
     def __init__(self, base_url: str | None = None, api_mode: str | None = None):
-        self.base_url = (base_url or settings.ollama_base_url).rstrip("/")
-        self.api_mode = api_mode or settings.ollama_api_mode
+        # Les valeurs seront résolues de façon async dans _resolve()
+        self._base_url_override = base_url
+        self._api_mode_override = api_mode
+        self._resolved = False
+        self.base_url = ""
+        self.api_mode = ""
+
+    async def _resolve(self) -> None:
+        """Résout les valeurs depuis la BDD si non override."""
+        if self._resolved:
+            return
+        if self._base_url_override:
+            self.base_url = self._base_url_override.rstrip("/")
+        else:
+            self.base_url = (await get_setting_value("ollama_base_url", "http://localhost:11434")).rstrip("/")
+        if self._api_mode_override:
+            self.api_mode = self._api_mode_override
+        else:
+            self.api_mode = await get_setting_value("ollama_api_mode", "openai")
+        self._resolved = True
 
     # ------------------------------------------------------------------
     # Liste des modèles disponibles
@@ -25,6 +43,7 @@ class OllamaClient:
 
     async def list_models(self) -> list[dict]:
         """Retourne la liste des modèles Ollama disponibles."""
+        await self._resolve()
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(f"{self.base_url}/api/tags")
             resp.raise_for_status()
@@ -45,6 +64,8 @@ class OllamaClient:
         max_tokens: int,
     ) -> AsyncGenerator[str, None]:
         """Stream via /v1/chat/completions (compatible OpenAI)."""
+        await self._resolve()
+        timeout = await get_setting_value("ollama_timeout", 300)
         payload: dict = {
             "model": model,
             "messages": [{"role": "system", "content": system}, *messages] if system else messages,
@@ -56,7 +77,7 @@ class OllamaClient:
             payload["tools"] = tools
 
         url = f"{self.base_url}/v1/chat/completions"
-        async with httpx.AsyncClient(timeout=settings.ollama_timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream("POST", url, json=payload) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
@@ -80,6 +101,8 @@ class OllamaClient:
         max_tokens: int,
     ) -> AsyncGenerator[str, None]:
         """Stream via /v1/messages (compatible Anthropic)."""
+        await self._resolve()
+        timeout = await get_setting_value("ollama_timeout", 300)
         payload: dict = {
             "model": model,
             "messages": messages,
@@ -97,7 +120,7 @@ class OllamaClient:
             "x-api-key": "ollama",
             "content-type": "application/json",
         }
-        async with httpx.AsyncClient(timeout=settings.ollama_timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             async with client.stream("POST", url, json=payload, headers=headers) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
@@ -122,6 +145,7 @@ class OllamaClient:
         max_tokens: int = 4096,
     ) -> AsyncGenerator[str, None]:
         """Stream unifié — délègue selon api_mode."""
+        await self._resolve()
         if self.api_mode == "anthropic":
             async for chunk in self._stream_anthropic(
                 model, messages, tools, system, temperature, max_tokens

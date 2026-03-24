@@ -124,10 +124,8 @@ def process_file(path: str, content: str) -> list[tuple[str, int]]:
     return chunk_text(content)
 
 
-def _chunk_code(content: str) -> list[tuple[str, int]]:
+def _chunk_code(content: str, chunk_size: int = 1500) -> list[tuple[str, int]]:
     """Découpage intelligent pour du code source (par fonctions/classes)."""
-    from app.config import settings
-
     # Sépare sur les blocs de fonctions/classes (lignes vides + définition)
     blocks = re.split(r"\n(?=\s*(?:def |class |fn |function |func |async def |pub fn |impl ))", content)
     chunks: list[tuple[str, int]] = []
@@ -137,13 +135,13 @@ def _chunk_code(content: str) -> list[tuple[str, int]]:
         candidate = (buffer + "\n\n" + block).strip() if buffer else block.strip()
         tokens = _estimate_tokens(candidate)
 
-        if tokens <= settings.chunk_size:
+        if tokens <= chunk_size:
             buffer = candidate
         else:
             if buffer:
                 chunks.append((buffer, _estimate_tokens(buffer)))
-            if _estimate_tokens(block) > settings.chunk_size:
-                chunks.extend(_force_split(block, settings.chunk_size))
+            if _estimate_tokens(block) > chunk_size:
+                chunks.extend(_force_split(block, chunk_size))
                 buffer = ""
             else:
                 buffer = block.strip()

@@ -11,6 +11,7 @@ from typing import Any
 import aiofiles
 
 from app.config import settings
+from app.services.settings import get_setting_value
 
 logger = logging.getLogger(__name__)
 
@@ -162,8 +163,9 @@ async def tool_read_file(path: str) -> dict:
     target = _safe_path(path)
     if not target.exists():
         return {"error": f"Fichier inexistant: {path}"}
-    if target.stat().st_size > settings.max_file_size:
-        return {"error": f"Fichier trop volumineux (max {settings.max_file_size // 1024} Ko)"}
+    max_file_size = await get_setting_value("max_file_size", 10 * 1024 * 1024)
+    if target.stat().st_size > max_file_size:
+        return {"error": f"Fichier trop volumineux (max {max_file_size // 1024} Ko)"}
     try:
         async with aiofiles.open(target, encoding="utf-8", errors="replace") as f:
             content = await f.read()
@@ -227,7 +229,9 @@ async def tool_run_command(command: str, timeout: int = 30) -> dict:
 
     Sécurité T1059 : timeout strict, pas de shell d'accès root.
     """
-    timeout = min(timeout, settings.shell_timeout)
+    shell_timeout = await get_setting_value("shell_timeout", 30)
+    shell_max_output = await get_setting_value("shell_max_output", 65536)
+    timeout = min(timeout, shell_timeout)
     try:
         proc = await asyncio.create_subprocess_shell(
             command,
@@ -242,8 +246,8 @@ async def tool_run_command(command: str, timeout: int = 30) -> dict:
             proc.kill()
             return {"error": f"Timeout ({timeout}s) dépassé", "command": command}
 
-        out = stdout.decode("utf-8", errors="replace")[: settings.shell_max_output]
-        err = stderr.decode("utf-8", errors="replace")[: settings.shell_max_output]
+        out = stdout.decode("utf-8", errors="replace")[:shell_max_output]
+        err = stderr.decode("utf-8", errors="replace")[:shell_max_output]
         return {
             "command": command,
             "stdout": out,

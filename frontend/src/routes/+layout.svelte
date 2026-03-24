@@ -6,9 +6,9 @@
     showFileExplorer, showSessionSidebar, showSettings,
     showTemplates, showSkillSelector, toasts, activePanel,
     models, modelsLoading, sessions, ollamaConfig,
-    selectedModel, skills, toast
+    selectedModel, skills, toast, appSettings
   } from '$lib/stores';
-  import { modelsApi, sessionsApi, skillsApi } from '$lib/api';
+  import { modelsApi, sessionsApi, skillsApi, settingsApi } from '$lib/api';
 
   import SessionSidebar   from '$lib/components/SessionSidebar/SessionSidebar.svelte';
   import FileExplorer     from '$lib/components/FileExplorer/FileExplorer.svelte';
@@ -21,10 +21,22 @@
   let { children } = $props();
 
   onMount(async () => {
-    // Charge modèles, sessions et skills en parallèle
     modelsLoading.set(true);
-    const cfg = get(ollamaConfig);
     try {
+      // 1. Charge les paramètres depuis la BDD
+      const allSettings = await settingsApi.list();
+      appSettings.set(allSettings);
+
+      // Extrait la config Ollama depuis les settings DB
+      const settingsMap = Object.fromEntries(allSettings.map(s => [s.key, s.value]));
+      const cfg = {
+        base_url: (settingsMap['ollama_base_url'] as string) || 'http://localhost:11434',
+        api_mode: (settingsMap['ollama_api_mode'] as string) || 'openai',
+        default_model: (settingsMap['ollama_default_model'] as string) || 'qwen3-coder',
+      };
+      ollamaConfig.set(cfg);
+
+      // 2. Charge modèles, sessions et skills en parallèle
       const [modelList, sessionList, skillList] = await Promise.all([
         modelsApi.list(cfg.base_url),
         sessionsApi.list(),
@@ -37,7 +49,7 @@
         selectedModel.set(cfg.default_model || modelList[0].name);
       }
     } catch (e) {
-      toast('error', `Connexion Ollama impossible: ${e instanceof Error ? e.message : e}`);
+      toast('error', `Erreur d'initialisation: ${e instanceof Error ? e.message : e}`);
     } finally {
       modelsLoading.set(false);
     }

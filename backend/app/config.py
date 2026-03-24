@@ -1,39 +1,26 @@
-"""Configuration centralisée OllamaStudio - chargée depuis variables d'environnement."""
+"""Configuration centralisée OllamaStudio.
+
+Les chemins (workspace, data, documents) restent chargés depuis l'env/.env
+car ils sont nécessaires avant l'init de la BDD.
+Tous les autres paramètres sont désormais persistés dans la table app_settings
+et lus dynamiquement via get_setting_value().
+"""
 from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """Paramètres de démarrage — uniquement les chemins et le CORS initial."""
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    # Ollama
-    ollama_base_url: str = "http://localhost:11434"
-    ollama_api_mode: str = "openai"  # "openai" | "anthropic"
-    ollama_default_model: str = "qwen3-coder"
-    ollama_timeout: int = 300
-
-    # Chemins
+    # Chemins (nécessaires avant init_db)
     workspace_root: Path = Path("workspace")
     data_dir: Path = Path("data")
     documents_dir: Path = Path("documents")
 
-    # Sécurité
+    # CORS initial (lu au démarrage, avant la BDD)
     cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
-    shell_timeout: int = 30
-    shell_max_output: int = 65536       # 64 Ko max par commande
-    max_file_size: int = 10 * 1024 * 1024  # 10 Mo max par fichier
-
-    # Documents
-    chunk_size: int = 1500              # Taille chunk en tokens approx
-    chunk_overlap: int = 150
-    max_chunks_context: int = 8         # Chunks max injectés dans le contexte
-
-    # Sessions
-    max_sessions: int = 100
-    max_messages_per_session: int = 500
-
-    # MCP
-    mcp_timeout: int = 30
 
     @property
     def db_path(self) -> Path:

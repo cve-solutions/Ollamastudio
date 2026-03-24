@@ -2,8 +2,8 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.config import settings
 from app.services.ollama import OllamaClient
+from app.services.settings import get_setting_value
 
 router = APIRouter()
 
@@ -41,10 +41,10 @@ async def list_models(
 
 @router.get("/config")
 async def get_ollama_config() -> dict:
-    """Retourne la configuration Ollama active."""
+    """Retourne la configuration Ollama active depuis la BDD."""
     return {
-        "base_url": settings.ollama_base_url,
-        "api_mode": settings.ollama_api_mode,
-        "default_model": settings.ollama_default_model,
-        "timeout": settings.ollama_timeout,
+        "base_url": await get_setting_value("ollama_base_url", "http://localhost:11434"),
+        "api_mode": await get_setting_value("ollama_api_mode", "openai"),
+        "default_model": await get_setting_value("ollama_default_model", "qwen3-coder"),
+        "timeout": await get_setting_value("ollama_timeout", 300),
     }
