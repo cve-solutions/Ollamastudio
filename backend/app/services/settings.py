@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any
 
 from sqlalchemy import select
@@ -14,12 +13,11 @@ from app.database import AppSetting, AsyncSessionFactory
 logger = logging.getLogger(__name__)
 
 # Valeurs par défaut — seedées au premier lancement
-# OLLAMA_BASE_URL est lue depuis l'env (docker-compose) si définie
 DEFAULT_SETTINGS: list[dict[str, str]] = [
     # ── Ollama ────────────────────────────────────────────────────────
     {
         "key": "ollama_base_url",
-        "value": os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434"),
+        "value": "http://localhost:11434",
         "category": "ollama",
         "label": "URL du serveur Ollama",
         "description": "Adresse complète du serveur Ollama (ex: http://192.168.1.100:11434)",
@@ -157,19 +155,12 @@ def _serialize_value(value: Any, value_type: str) -> str:
 
 
 async def seed_default_settings() -> None:
-    """Insère les paramètres par défaut s'ils n'existent pas encore.
-
-    Si OLLAMA_BASE_URL est définie dans l'environnement, elle écrase
-    systématiquement la valeur en BDD (permet la config via docker-compose).
-    """
-    env_ollama_url = os.environ.get("OLLAMA_BASE_URL")
+    """Insère les paramètres par défaut s'ils n'existent pas encore."""
     async with AsyncSessionFactory() as db:
         for dflt in DEFAULT_SETTINGS:
             existing = await db.get(AppSetting, dflt["key"])
             if existing is None:
                 db.add(AppSetting(**dflt))
-            elif dflt["key"] == "ollama_base_url" and env_ollama_url:
-                existing.value = env_ollama_url
         await db.commit()
     logger.info("Paramètres par défaut vérifiés/seedés.")
 
