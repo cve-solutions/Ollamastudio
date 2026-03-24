@@ -186,6 +186,17 @@ export interface Skill {
   color: string;
 }
 
+export interface SkillImportResult {
+  imported: number;
+  skipped: number;
+  errors: number;
+  details: {
+    imported: { id: string; name: string }[];
+    skipped: { index: number; name: string; reason: string }[];
+    errors: { index: number; name?: string; error: string }[];
+  };
+}
+
 export const skillsApi = {
   list: () => api<Skill[]>('/api/skills/'),
   get: (id: string) => api<Skill>(`/api/skills/${id}`),
@@ -195,6 +206,19 @@ export const skillsApi = {
     api<Skill>(`/api/skills/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: string) =>
     fetch(`${BASE}/api/skills/${id}`, { method: 'DELETE' }),
+  importJson: async (file: File): Promise<SkillImportResult> => {
+    const form = new FormData();
+    form.append('file', file);
+    const resp = await fetch(`${BASE}/api/skills/import`, {
+      method: 'POST',
+      body: form,
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+      throw new Error(err.detail || `Erreur ${resp.status}`);
+    }
+    return resp.json();
+  },
 };
 
 // ── Documents ────────────────────────────────────────────────────────────────
