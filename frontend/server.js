@@ -2,9 +2,13 @@
  * Serveur custom OllamaStudio — SvelteKit + proxy WebSocket.
  *
  * adapter-node génère build/handler.js qui exporte { handler }.
- * On crée notre propre serveur HTTP pour ajouter le proxy WebSocket
- * vers le backend (le navigateur ne peut pas accéder au port 8000
- * directement en Docker).
+ * On crée notre propre serveur HTTP pour :
+ * 1. Servir les pages SvelteKit (requêtes HTTP normales)
+ * 2. Proxifier les WebSocket /api/* vers le backend Docker
+ *
+ * IMPORTANT : les requêtes HTTP Upgrade (WebSocket) ne doivent PAS
+ * passer par le handler SvelteKit, sinon il répond avant que
+ * l'événement 'upgrade' ne puisse les traiter.
  */
 import http from 'node:http';
 import { handler } from './build/handler.js';
@@ -15,12 +19,20 @@ const BACKEND = process.env.BACKEND_URL || 'http://backend:8000';
 
 const backendUrl = new URL(BACKEND);
 
-// ── Serveur HTTP avec le handler SvelteKit ──────────────────────
-const server = http.createServer(handler);
+// ── Serveur HTTP ────────────────────────────────────────────────
+// Wrapper du handler SvelteKit : ignore les requêtes WebSocket Upgrade
+// pour laisser l'événement 'upgrade' les gérer.
+const server = http.createServer((req, res) => {
+  if (req.headers.upgrade && req.headers.upgrade.toLowerCase() === 'websocket') {
+    // Ne rien faire — l'événement 'upgrade' va s'en occuper.
+    // On ne répond PAS pour que la connexion reste ouverte.
+    return;
+  }
+  handler(req, res);
+});
 
-// ── Proxy WebSocket pour /api/shell/ws ──────────────────────────
+// ── Proxy WebSocket pour /api/* ─────────────────────────────────
 server.on('upgrade', (req, socket, head) => {
-  // Ne proxy que les chemins /api/*
   if (!req.url?.startsWith('/api/')) {
     socket.destroy();
     return;
@@ -40,7 +52,6 @@ server.on('upgrade', (req, socket, head) => {
   });
 
   proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
-    // Construit la réponse 101 Switching Protocols
     let responseHeader = 'HTTP/1.1 101 Switching Protocols\r\n';
     for (const [key, value] of Object.entries(proxyRes.headers)) {
       if (value) responseHeader += `${key}: ${value}\r\n`;
@@ -65,11 +76,12 @@ server.on('upgrade', (req, socket, head) => {
       console.error('[WS Proxy] Client socket error:', err.message);
       proxySocket.destroy();
     });
+
+    console.log(`[WS Proxy] Connection established: ${req.url}`);
   });
 
   proxyReq.on('response', (res) => {
-    // Le backend a refusé l'upgrade — renvoie la réponse HTTP
-    console.warn(`[WS Proxy] Upgrade refused: ${res.statusCode} ${res.statusMessage}`);
+    console.warn(`[WS Proxy] Upgrade refused by backend: ${res.statusCode}`);
     let header = `HTTP/1.1 ${res.statusCode} ${res.statusMessage}\r\n`;
     for (const [key, value] of Object.entries(res.headers)) {
       if (value) header += `${key}: ${value}\r\n`;
@@ -80,7 +92,7 @@ server.on('upgrade', (req, socket, head) => {
   });
 
   proxyReq.on('error', (err) => {
-    console.error('[WS Proxy] Connection error:', err.message);
+    console.error('[WS Proxy] Connection to backend failed:', err.message);
     socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
     socket.destroy();
   });
