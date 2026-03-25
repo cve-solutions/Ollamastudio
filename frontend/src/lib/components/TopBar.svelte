@@ -25,9 +25,6 @@
   <div class="logo">
     <span class="logo-icon">◎</span>
     <span class="logo-text">OllamaStudio</span>
-    {#if $appVersion}
-      <span class="logo-version">v{$appVersion}</span>
-    {/if}
   </div>
 
   <!-- Navigation panels -->
@@ -42,6 +39,11 @@
       </button>
     {/each}
   </nav>
+
+  <!-- Version centrée -->
+  {#if $appVersion}
+    <span class="version-badge">v{$appVersion}</span>
+  {/if}
 
   <!-- Modèle + skill -->
   <div class="toolbar">
@@ -133,11 +135,17 @@
     letter-spacing: 0.02em;
   }
 
-  .logo-version {
+  .version-badge {
     font-size: 10px;
     color: var(--text-muted);
-    font-weight: 400;
-    opacity: 0.7;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 8px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    opacity: 0.8;
+    flex-shrink: 0;
+    margin: 0 8px;
   }
 
   .panel-tabs {
