@@ -8,16 +8,18 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./backend/data:/app/data:z          # SQLite + skills + templates
-      - ./backend/workspace:/app/workspace:z # Workspace fichiers utilisateur
-      - ./backend/documents:/app/documents:z # Documents importés
-      - /:/host:ro,z                         # Accès lecture seule au filesystem hôte → /host/...
+      - ./backend/data:/app/data              # SQLite + skills + templates
+      - ./backend/workspace:/app/workspace   # Workspace fichiers utilisateur
+      - ./backend/documents:/app/documents   # Documents importés
+      - ${IMPORT_DIR:-/tmp}:/import:ro       # Dossier hôte pour import → /import/...
+    security_opt:
+      - label:disable                        # Nécessaire pour lire les volumes montés sans restrictions SELinux
     environment:
       - WORKSPACE_ROOT=/app/workspace
       - DATA_DIR=/app/data
       - DOCUMENTS_DIR=/app/documents
       - LOG_LEVEL=DEBUG
-      - APP_VERSION=0.0.12
+      - APP_VERSION=0.0.13
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--log-level", "debug"]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
