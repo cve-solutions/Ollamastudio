@@ -146,7 +146,3 @@ ollama pull deepseek-coder-v2
 - Commandes sensibles bloquées (`su`, `sudo`, `passwd`…)
 - CORS configuré explicitement
 - Pas d'envoi de données vers des serveurs externes
-
-## Licence
-
-MIT — GoverByte / Cyrille

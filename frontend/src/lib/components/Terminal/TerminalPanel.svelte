@@ -85,8 +85,13 @@
 
       // Redirige les touches vers le WS
       terminal.onData((data: string) => {
-        ws?.send(data);
+        if (ws?.readyState === WebSocket.OPEN) {
+          ws.send(data);
+        }
       });
+
+      // Focus le terminal pour capturer les frappes
+      terminal.focus();
     };
 
     ws.onmessage = (e) => {
@@ -146,7 +151,7 @@
       <button class="term-btn" onclick={reconnect} title="Reconnecter">↺ Reconnecter</button>
     </div>
   </div>
-  <div class="xterm-wrap" bind:this={container}></div>
+  <div class="xterm-wrap" bind:this={container} on:click={() => terminal?.focus()}></div>
 </div>
 
 <style>
