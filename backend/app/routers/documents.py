@@ -118,17 +118,21 @@ async def import_folder(
     folder = Path(body.folder_path).resolve()
     debug_buffer.log("INFO", "import", f"Import dossier demandé: {body.folder_path} → résolu: {folder}")
 
-    # Sécurité : le dossier doit être dans documents_dir ou workspace_root
+    # Sécurité : le dossier doit être dans documents_dir, workspace_root ou data_dir
     allowed_roots = [
         settings.documents_dir.resolve(),
         settings.workspace_root.resolve(),
+        settings.data_dir.resolve(),
     ]
     debug_buffer.log("DEBUG", "import", f"Racines autorisées: {[str(r) for r in allowed_roots]}")
 
     if not any(str(folder).startswith(str(root)) for root in allowed_roots):
         msg = f"Dossier {folder} hors des répertoires autorisés"
         debug_buffer.log("ERROR", "import", msg, allowed_roots=[str(r) for r in allowed_roots])
-        raise HTTPException(status_code=403, detail="Dossier hors des répertoires autorisés (documents/ ou workspace/)")
+        raise HTTPException(
+            status_code=403,
+            detail=f"Dossier hors des répertoires autorisés. Chemins Docker valides : {', '.join(str(r) for r in allowed_roots)}"
+        )
 
     if not folder.exists():
         debug_buffer.log("ERROR", "import", f"Dossier inexistant: {folder}")
