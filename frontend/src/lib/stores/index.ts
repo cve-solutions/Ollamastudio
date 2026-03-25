@@ -114,6 +114,7 @@ export const selectedModel = writable<string>('qwen3-coder');
 
 export const debugMode = writable(false);
 export const showDebugPanel = writable(false);
+export const appVersion = writable('');
 
 // ── Terminal WebSocket URL ────────────────────────────────────────────────────
 

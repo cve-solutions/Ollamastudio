@@ -2,7 +2,8 @@
   import {
     showFileExplorer, showSessionSidebar, showSettings,
     showTemplates, showSkillSelector, activePanel,
-    selectedModel, models, activeSkill, isStreaming, skills
+    selectedModel, models, activeSkill, isStreaming, skills,
+    appVersion
   } from '$lib/stores';
   import type { PanelId } from '$lib/stores';
 
@@ -24,6 +25,9 @@
   <div class="logo">
     <span class="logo-icon">◎</span>
     <span class="logo-text">OllamaStudio</span>
+    {#if $appVersion}
+      <span class="logo-version">v{$appVersion}</span>
+    {/if}
   </div>
 
   <!-- Navigation panels -->
@@ -127,6 +131,13 @@
     font-size: 13px;
     color: var(--text-primary);
     letter-spacing: 0.02em;
+  }
+
+  .logo-version {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-weight: 400;
+    opacity: 0.7;
   }
 
   .panel-tabs {

@@ -64,8 +64,13 @@
 
     // Enregistre le handler de données — envoie les frappes au WS
     const disposable = terminal.onData((data: string) => {
+      console.log('[Term] onData:', JSON.stringify(data), 'ws:', ws?.readyState);
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(data);
+        console.log('[Term] sent ok');
+      } else {
+        console.log('[Term] DROPPED - ws state:', ws?.readyState);
+        terminal.write('\x1b[31m[WS fermé]\x1b[0m');
       }
     });
     dataListenerDispose = () => disposable.dispose();
@@ -91,19 +96,33 @@
     ws = new WebSocket(WS_URL);
 
     ws.onopen = () => {
+      console.log('[Term] WS OPEN', WS_URL);
       terminal.writeln('\x1b[32m● Connecté au shell OllamaStudio\x1b[0m');
-      terminal.writeln('\x1b[90mRépertoire de travail: /workspace\x1b[0m\n');
+      terminal.writeln('\x1b[90mRépertoire: /workspace — Tapez une commande\x1b[0m\n');
       sendResize();
 
-      // Force le focus sur le textarea interne de xterm.js
+      // Force le focus
       requestAnimationFrame(() => {
         terminal.focus();
-        // Double-check : cherche le textarea helper et le focus
         const ta = container?.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement;
         if (ta) {
           ta.focus();
+          console.log('[Term] textarea focused, tagName:', ta.tagName);
+        } else {
+          console.log('[Term] NO textarea helper found!');
         }
       });
+    };
+
+    ws.onclose = (ev) => {
+      console.log('[Term] WS CLOSED code:', ev.code, 'reason:', ev.reason);
+      terminal?.writeln(`\n\x1b[31m● Connexion fermée [code=${ev.code}]\x1b[0m`);
+      terminal?.writeln(`\x1b[90m  Cliquez "Reconnecter" pour réessayer\x1b[0m`);
+    };
+
+    ws.onerror = (ev) => {
+      console.log('[Term] WS ERROR', ev);
+      terminal?.writeln(`\n\x1b[31m● Erreur WebSocket\x1b[0m`);
     };
 
     ws.onmessage = (e) => {
@@ -114,17 +133,6 @@
       } else {
         terminal.write(e.data);
       }
-    };
-
-    ws.onclose = (ev) => {
-      const reason = ev.reason ? ` (${ev.reason})` : '';
-      terminal?.writeln(`\n\x1b[31m● Connexion fermée [code=${ev.code}]${reason}\x1b[0m`);
-      terminal?.writeln(`\x1b[90m  Cliquez "Reconnecter" pour réessayer\x1b[0m`);
-    };
-
-    ws.onerror = () => {
-      terminal?.writeln(`\n\x1b[31m● Erreur de connexion WebSocket\x1b[0m`);
-      terminal?.writeln(`\x1b[90m  URL: ${WS_URL}\x1b[0m`);
     };
   }
 
