@@ -1,14 +1,5 @@
 /**
  * Serveur custom OllamaStudio — SvelteKit + proxy WebSocket.
- *
- * adapter-node génère build/handler.js qui exporte { handler }.
- * On crée notre propre serveur HTTP pour :
- * 1. Servir les pages SvelteKit (requêtes HTTP normales)
- * 2. Proxifier les WebSocket /api/* vers le backend Docker
- *
- * IMPORTANT : les requêtes HTTP Upgrade (WebSocket) ne doivent PAS
- * passer par le handler SvelteKit, sinon il répond avant que
- * l'événement 'upgrade' ne puisse les traiter.
  */
 import http from 'node:http';
 import { handler } from './build/handler.js';
@@ -20,81 +11,100 @@ const BACKEND = process.env.BACKEND_URL || 'http://backend:8000';
 const backendUrl = new URL(BACKEND);
 
 // ── Serveur HTTP ────────────────────────────────────────────────
-// Wrapper du handler SvelteKit : ignore les requêtes WebSocket Upgrade
-// pour laisser l'événement 'upgrade' les gérer.
 const server = http.createServer((req, res) => {
   if (req.headers.upgrade && req.headers.upgrade.toLowerCase() === 'websocket') {
-    // Ne rien faire — l'événement 'upgrade' va s'en occuper.
-    // On ne répond PAS pour que la connexion reste ouverte.
-    return;
+    return; // Laisse l'événement 'upgrade' gérer
   }
   handler(req, res);
 });
 
 // ── Proxy WebSocket pour /api/* ─────────────────────────────────
-server.on('upgrade', (req, socket, head) => {
+server.on('upgrade', (req, clientSocket, clientHead) => {
   if (!req.url?.startsWith('/api/')) {
-    socket.destroy();
+    clientSocket.destroy();
     return;
   }
 
   console.log(`[WS Proxy] Upgrade ${req.url} → ${BACKEND}${req.url}`);
+
+  // Copie les headers mais SUPPRIME les extensions WebSocket
+  // pour éviter permessage-deflate qui casse le proxy TCP brut
+  const headers = { ...req.headers };
+  delete headers['sec-websocket-extensions'];
+  headers.host = `${backendUrl.hostname}:${backendUrl.port || 8000}`;
 
   const proxyReq = http.request({
     hostname: backendUrl.hostname,
     port: backendUrl.port || 8000,
     path: req.url,
     method: 'GET',
-    headers: {
-      ...req.headers,
-      host: `${backendUrl.hostname}:${backendUrl.port || 8000}`,
-    },
+    headers,
   });
 
-  proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
+  proxyReq.on('upgrade', (proxyRes, backendSocket, backendHead) => {
+    // Reconstruit la réponse 101 SANS les extensions
     let responseHeader = 'HTTP/1.1 101 Switching Protocols\r\n';
     for (const [key, value] of Object.entries(proxyRes.headers)) {
+      // Supprime les extensions pour que le navigateur n'utilise pas de compression
+      if (key.toLowerCase() === 'sec-websocket-extensions') continue;
       if (value) responseHeader += `${key}: ${value}\r\n`;
     }
     responseHeader += '\r\n';
 
-    socket.write(responseHeader);
-    if (proxyHead && proxyHead.length) {
-      socket.write(proxyHead);
+    clientSocket.write(responseHeader);
+
+    // Envoie les données résiduelles des deux côtés
+    if (backendHead && backendHead.length) {
+      clientSocket.write(backendHead);
+    }
+    if (clientHead && clientHead.length) {
+      backendSocket.write(clientHead);
     }
 
-    // Bidirectionnel
-    proxySocket.pipe(socket);
-    socket.pipe(proxySocket);
+    // Désactive le buffering Nagle pour un envoi immédiat
+    clientSocket.setNoDelay(true);
+    backendSocket.setNoDelay(true);
 
-    proxySocket.on('error', (err) => {
-      console.error('[WS Proxy] Backend socket error:', err.message);
-      socket.destroy();
+    // Bidirectionnel avec logging
+    clientSocket.on('data', (chunk) => {
+      backendSocket.write(chunk);
     });
 
-    socket.on('error', (err) => {
-      console.error('[WS Proxy] Client socket error:', err.message);
-      proxySocket.destroy();
+    backendSocket.on('data', (chunk) => {
+      clientSocket.write(chunk);
     });
 
-    console.log(`[WS Proxy] Connection established: ${req.url}`);
+    clientSocket.on('end', () => backendSocket.end());
+    backendSocket.on('end', () => clientSocket.end());
+
+    clientSocket.on('error', (err) => {
+      console.error('[WS Proxy] Client error:', err.message);
+      backendSocket.destroy();
+    });
+
+    backendSocket.on('error', (err) => {
+      console.error('[WS Proxy] Backend error:', err.message);
+      clientSocket.destroy();
+    });
+
+    console.log(`[WS Proxy] Connected: ${req.url}`);
   });
 
   proxyReq.on('response', (res) => {
-    console.warn(`[WS Proxy] Upgrade refused by backend: ${res.statusCode}`);
+    console.warn(`[WS Proxy] Upgrade refused: ${res.statusCode}`);
     let header = `HTTP/1.1 ${res.statusCode} ${res.statusMessage}\r\n`;
     for (const [key, value] of Object.entries(res.headers)) {
       if (value) header += `${key}: ${value}\r\n`;
     }
     header += '\r\n';
-    socket.write(header);
-    res.pipe(socket);
+    clientSocket.write(header);
+    res.pipe(clientSocket);
   });
 
   proxyReq.on('error', (err) => {
-    console.error('[WS Proxy] Connection to backend failed:', err.message);
-    socket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
-    socket.destroy();
+    console.error('[WS Proxy] Backend unreachable:', err.message);
+    clientSocket.write('HTTP/1.1 502 Bad Gateway\r\n\r\n');
+    clientSocket.destroy();
   });
 
   proxyReq.end();
