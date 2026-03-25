@@ -130,6 +130,21 @@ async def import_folder(
         debug_buffer.log("ERROR", "import", f"Pas un dossier: {folder}")
         raise HTTPException(status_code=404, detail=f"Ce n'est pas un dossier: {folder}")
 
+    # Vérifie que le dossier est lisible
+    try:
+        entries = list(folder.iterdir())
+    except PermissionError:
+        debug_buffer.log("ERROR", "import", f"Permission refusée pour lire {folder}")
+        raise HTTPException(
+            status_code=403,
+            detail=f"Permission refusée pour lire le dossier {folder}. "
+                   f"Vérifiez les permissions ou ajoutez :z au volume Docker."
+        )
+
+    if not entries:
+        debug_buffer.log("WARN", "import", f"Dossier vide: {folder}")
+        raise HTTPException(status_code=404, detail=f"Le dossier est vide: {folder}")
+
     imported = []
     errors = []
     skipped = 0
