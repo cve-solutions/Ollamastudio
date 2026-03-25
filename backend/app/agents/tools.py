@@ -354,11 +354,60 @@ async def execute_tool(name: str, arguments: dict) -> dict:
     executor = TOOL_EXECUTORS.get(name)
     if executor is None:
         return {"error": f"Outil inconnu: {name}"}
+
+    # ── Normalise les arguments ──────────────────────────────────────
+    # Certains LLM locaux (Ollama) envoient les arguments imbriqués
+    # dans une clé "input" ou "arguments", ou avec des noms différents.
+    args = _normalize_tool_args(name, arguments)
+
     try:
-        result = await executor(**arguments)
+        result = await executor(**args)
         return result if isinstance(result, dict) else {"result": result}
+    except TypeError as e:
+        # Argument manquant ou inattendu — log et message clair
+        logger.warning("Outil %s: signature mismatch args=%s: %s", name, list(args.keys()), e)
+        return {"error": f"Arguments invalides pour {name}: paramètres attendus manquants. Reçu: {list(args.keys())}"}
     except PermissionError as e:
         return {"error": f"Permission refusée: {e}"}
     except Exception as e:
         logger.exception("Erreur outil %s: %s", name, e)
         return {"error": f"Erreur interne: {e}"}
+
+
+def _normalize_tool_args(name: str, args: dict) -> dict:
+    """Tente de corriger les arguments mal formés envoyés par les LLM locaux.
+
+    Cas courants :
+      - args imbriqués dans une clé "input" ou "arguments"
+      - clé unique contenant un dict avec les vrais paramètres
+      - args vide alors que le LLM a mal sérialisé le JSON
+    """
+    if not args:
+        return args
+
+    # Déballe une couche d'imbrication ("input": {...}, "arguments": {...})
+    for wrapper_key in ("input", "arguments", "params", "parameters"):
+        if wrapper_key in args and isinstance(args[wrapper_key], dict):
+            inner = args[wrapper_key]
+            # Vérifie que le contenu intérieur ressemble aux vrais args
+            schema_params = _get_expected_params(name)
+            if schema_params and any(k in inner for k in schema_params):
+                return inner
+
+    # Si une seule clé contient un dict et que les args attendus sont dedans
+    if len(args) == 1:
+        only_value = next(iter(args.values()))
+        if isinstance(only_value, dict):
+            schema_params = _get_expected_params(name)
+            if schema_params and any(k in only_value for k in schema_params):
+                return only_value
+
+    return args
+
+
+def _get_expected_params(tool_name: str) -> set[str]:
+    """Retourne les noms des paramètres attendus pour un outil."""
+    for schema in TOOL_SCHEMAS:
+        if schema["function"]["name"] == tool_name:
+            return set(schema["function"]["parameters"].get("properties", {}).keys())
+    return set()
