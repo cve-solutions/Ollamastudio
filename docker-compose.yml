@@ -15,6 +15,8 @@ services:
       - WORKSPACE_ROOT=/app/workspace
       - DATA_DIR=/app/data
       - DOCUMENTS_DIR=/app/documents
+      - LOG_LEVEL=DEBUG
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--log-level", "debug"]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 15s
@@ -31,6 +33,7 @@ services:
       - "3000:3000"
     environment:
       - BACKEND_URL=http://backend:8000
+      - NODE_ENV=development
     depends_on:
       backend:
         condition: service_healthy

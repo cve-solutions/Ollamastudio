@@ -79,13 +79,24 @@ class ShellSession:
                 try:
                     msg = await self.ws.receive()
                 except WebSocketDisconnect:
+                    logger.debug("[Shell WS] Client déconnecté")
+                    break
+
+                msg_type = msg.get("type", "unknown")
+                logger.debug("[Shell WS] Message reçu: type=%s keys=%s", msg_type, list(msg.keys()))
+
+                if msg_type == "websocket.disconnect":
+                    logger.debug("[Shell WS] Disconnect frame reçu")
                     break
 
                 if "bytes" in msg:
                     data = msg["bytes"]
+                    logger.debug("[Shell WS] Bytes reçus: %d octets", len(data))
                 elif "text" in msg:
                     data = msg["text"].encode()
+                    logger.debug("[Shell WS] Texte reçu: %r", msg["text"][:100])
                 else:
+                    logger.debug("[Shell WS] Message ignoré (pas de bytes/text): %s", msg_type)
                     continue
 
                 # Commandes de contrôle JSON (resize, signal)
@@ -93,6 +104,7 @@ class ShellSession:
                     await self._handle_control(data)
                     continue
 
+                logger.debug("[Shell WS] Écriture PTY: %d octets", len(data))
                 os.write(fd, data)
 
         await asyncio.gather(read_from_pty(), read_from_ws())
