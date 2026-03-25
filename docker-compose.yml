@@ -8,9 +8,9 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./backend/data:/app/data          # SQLite + skills + templates
-      - ./backend/workspace:/app/workspace # Workspace fichiers utilisateur
-      - ./backend/documents:/app/documents # Documents importés
+      - ./backend/data:/app/data:z          # SQLite + skills + templates
+      - ./backend/workspace:/app/workspace:z # Workspace fichiers utilisateur
+      - ./backend/documents:/app/documents:z # Documents importés
     environment:
       - WORKSPACE_ROOT=/app/workspace
       - DATA_DIR=/app/data
