@@ -1,6 +1,6 @@
 # OllamaStudio
 
-**v0.0.3**
+**v0.0.4**
 
 **Interface web Claude Code-compatible pour Ollama** — 100% local, données sur votre infrastructure.
 
