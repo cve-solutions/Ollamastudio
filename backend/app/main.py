@@ -14,6 +14,18 @@ from app.services.settings import seed_default_settings, get_setting_value
 from app.services.debug import debug_buffer
 
 import os
+from pathlib import Path
+
+# Version — lue depuis le fichier VERSION copié dans l'image Docker
+_version_candidates = [
+    Path(__file__).resolve().parent.parent / "VERSION",       # /app/VERSION (Docker)
+    Path(__file__).resolve().parent.parent.parent / "VERSION", # racine projet (dev local)
+]
+__version__ = "0.0.1"
+for _vf in _version_candidates:
+    if _vf.exists():
+        __version__ = _vf.read_text().strip()
+        break
 
 _log_level = getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO)
 logging.basicConfig(
@@ -48,7 +60,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="OllamaStudio API",
     description="Interface web Claude Code compatible pour Ollama",
-    version="0.1.0",
+    version=__version__,
     lifespan=lifespan,
 )
 
@@ -111,7 +123,7 @@ app.include_router(settings_router.router,   prefix="/api/settings",  tags=["Par
 
 @app.get("/health", include_in_schema=False)
 async def health() -> JSONResponse:
-    return JSONResponse({"status": "ok", "version": "0.1.0"})
+    return JSONResponse({"status": "ok", "version": __version__})
 
 
 @app.get("/api/config", tags=["Configuration"])
