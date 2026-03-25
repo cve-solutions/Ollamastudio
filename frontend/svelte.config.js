@@ -6,6 +6,9 @@ const config = {
   preprocess: vitePreprocess(),
   kit: {
     adapter: adapter({ port: 3000 }),
+    csrf: {
+      checkOrigin: false, // Les requêtes /api/* sont proxifiées vers le backend
+    },
     alias: {
       $lib: './src/lib',
       $api: './src/lib/api',
