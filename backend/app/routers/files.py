@@ -136,12 +136,16 @@ async def rename_path(body: RenameRequest) -> dict:
     return {"old_path": body.old_path, "new_path": body.new_path}
 
 
+class MkdirRequest(BaseModel):
+    path: str
+
+
 @router.post("/mkdir", status_code=201)
-async def mkdir(path: str) -> dict:
+async def mkdir(body: MkdirRequest) -> dict:
     """Crée un répertoire (et ses parents)."""
-    target = _safe_path(path)
+    target = _safe_path(body.path)
     target.mkdir(parents=True, exist_ok=True)
-    return {"created": path}
+    return {"created": body.path}
 
 
 @router.post("/upload", status_code=201)
