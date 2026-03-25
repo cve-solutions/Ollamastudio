@@ -120,9 +120,8 @@ export const showDebugPanel = writable(false);
 export const wsTerminalUrl = derived(
   ollamaConfig,
   () => {
-    if (typeof window === 'undefined') return 'ws://localhost:8000/api/shell/ws';
+    if (typeof window === 'undefined') return 'ws://localhost:3000/api/shell/ws';
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const hostname = window.location.hostname;
-    return `${proto}//${hostname}:8000/api/shell/ws`;
+    return `${proto}//${window.location.host}/api/shell/ws`;
   }
 );

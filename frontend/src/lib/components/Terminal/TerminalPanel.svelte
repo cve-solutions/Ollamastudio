@@ -8,12 +8,12 @@
   let mounted = false;
   let dataListenerDispose: (() => void) | null = null;
 
-  // WebSocket URL — même hostname que le navigateur, port 8000 (backend)
+  // WebSocket URL — même origin que le navigateur (port 3000)
+  // Le serveur Node custom proxy les WS /api/* → backend:8000
   const WS_URL = (() => {
-    if (typeof window === 'undefined') return 'ws://localhost:8000/api/shell/ws';
+    if (typeof window === 'undefined') return 'ws://localhost:3000/api/shell/ws';
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const hostname = window.location.hostname;
-    return `${proto}//${hostname}:8000/api/shell/ws`;
+    return `${proto}//${window.location.host}/api/shell/ws`;
   })();
 
   onMount(async () => {
