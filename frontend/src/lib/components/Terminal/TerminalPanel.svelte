@@ -160,12 +160,11 @@
     if (ta) ta.focus();
   }
 
-  // Fallback : si xterm.js ne capte pas les touches, on les envoie
-  // directement via un keydown listener sur le conteneur
+  // Fallback : envoie les touches directement au WS
   function handleContainerKeydown(e: KeyboardEvent) {
+    console.log('[Term] keydown:', e.key, 'target:', (e.target as HTMLElement)?.className, 'ws:', ws?.readyState);
+
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    // Ne pas interférer si xterm.js gère déjà (target = textarea helper)
-    if ((e.target as HTMLElement)?.classList?.contains('xterm-helper-textarea')) return;
 
     // Touches spéciales
     if (e.key === 'Enter') { ws.send('\r'); e.preventDefault(); return; }
