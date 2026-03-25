@@ -6,7 +6,7 @@
     showFileExplorer, showSessionSidebar, showSettings,
     showTemplates, showSkillSelector, toasts, activePanel,
     models, modelsLoading, sessions, ollamaConfig,
-    selectedModel, skills, toast, appSettings, debugMode
+    selectedModel, skills, toast, appSettings, debugMode, appVersion
   } from '$lib/stores';
   import { modelsApi, sessionsApi, skillsApi, settingsApi } from '$lib/api';
 
@@ -39,12 +39,14 @@
       // Sync debug mode
       debugMode.set(!!settingsMap['debug_mode']);
 
-      // 2. Charge modèles, sessions et skills en parallèle
-      const [modelList, sessionList, skillList] = await Promise.all([
+      // 2. Charge version, modèles, sessions et skills en parallèle
+      const [healthData, modelList, sessionList, skillList] = await Promise.all([
+        fetch('/health').then(r => r.json()).catch(() => ({ version: '' })),
         modelsApi.list(cfg.base_url),
         sessionsApi.list(),
         skillsApi.list(),
       ]);
+      if (healthData.version) appVersion.set(healthData.version);
       models.set(modelList);
       sessions.set(sessionList);
       skills.set(skillList);
