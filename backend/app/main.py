@@ -14,18 +14,8 @@ from app.services.settings import seed_default_settings, get_setting_value
 from app.services.debug import debug_buffer
 
 import os
-from pathlib import Path
 
-# Version — lue depuis le fichier VERSION copié dans l'image Docker
-_version_candidates = [
-    Path(__file__).resolve().parent.parent / "VERSION",       # /app/VERSION (Docker)
-    Path(__file__).resolve().parent.parent.parent / "VERSION", # racine projet (dev local)
-]
-__version__ = "0.0.1"
-for _vf in _version_candidates:
-    if _vf.exists():
-        __version__ = _vf.read_text().strip()
-        break
+__version__ = os.environ.get("APP_VERSION", "0.0.2")
 
 _log_level = getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO)
 logging.basicConfig(
