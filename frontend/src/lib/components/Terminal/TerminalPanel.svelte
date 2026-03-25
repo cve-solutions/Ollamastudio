@@ -6,6 +6,7 @@
   let fitAddon: any;
   let ws: WebSocket | null = null;
   let mounted = false;
+  let dataListenerDispose: (() => void) | null = null;
 
   // WebSocket URL — même hostname que le navigateur, port 8000 (backend)
   const WS_URL = (() => {
@@ -50,6 +51,8 @@
       cursorBlink: true,
       cursorStyle: 'bar',
       allowProposedApi: true,
+      // Garantit que xterm.js traite tous les événements clavier
+      disableStdin: false,
     });
 
     fitAddon = new FitAddon();
@@ -59,21 +62,13 @@
     fitAddon.fit();
     mounted = true;
 
-    // Enregistre le handler de données UNE SEULE FOIS
-    // Envoie les frappes au WebSocket actif
-    terminal.onData((data: string) => {
-      console.debug('[Terminal] onData fired:', JSON.stringify(data), 'ws state:', ws?.readyState);
+    // Enregistre le handler de données — envoie les frappes au WS
+    const disposable = terminal.onData((data: string) => {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(data);
-      } else {
-        console.warn('[Terminal] WS not open, dropping input. State:', ws?.readyState);
       }
     });
-
-    // Debug: vérifie que le terminal reçoit les événements clavier
-    terminal.onKey((e: { key: string; domEvent: KeyboardEvent }) => {
-      console.debug('[Terminal] onKey:', e.domEvent.key, 'code:', e.domEvent.code);
-    });
+    dataListenerDispose = () => disposable.dispose();
 
     connectWs();
 
@@ -84,27 +79,31 @@
     });
     ro.observe(container);
 
-    return () => ro.disconnect();
+    return () => {
+      ro.disconnect();
+      dataListenerDispose?.();
+    };
   });
 
   function connectWs() {
     if (!mounted) return;
 
-    console.info('[Terminal] Connecting to', WS_URL);
     ws = new WebSocket(WS_URL);
 
     ws.onopen = () => {
-      console.info('[Terminal] WebSocket connected');
       terminal.writeln('\x1b[32m● Connecté au shell OllamaStudio\x1b[0m');
       terminal.writeln('\x1b[90mRépertoire de travail: /workspace\x1b[0m\n');
-
       sendResize();
 
-      // Force le focus sur le terminal
-      setTimeout(() => {
+      // Force le focus sur le textarea interne de xterm.js
+      requestAnimationFrame(() => {
         terminal.focus();
-        console.debug('[Terminal] Focus applied. textarea:', document.activeElement?.tagName);
-      }, 100);
+        // Double-check : cherche le textarea helper et le focus
+        const ta = container?.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement;
+        if (ta) {
+          ta.focus();
+        }
+      });
     };
 
     ws.onmessage = (e) => {
@@ -120,26 +119,22 @@
     ws.onclose = (ev) => {
       const reason = ev.reason ? ` (${ev.reason})` : '';
       terminal?.writeln(`\n\x1b[31m● Connexion fermée [code=${ev.code}]${reason}\x1b[0m`);
-      terminal?.writeln(`\x1b[90m  URL: ${WS_URL}\x1b[0m`);
       terminal?.writeln(`\x1b[90m  Cliquez "Reconnecter" pour réessayer\x1b[0m`);
-      console.warn('[Terminal] WS close', { code: ev.code, reason: ev.reason });
     };
 
-    ws.onerror = (ev) => {
+    ws.onerror = () => {
       terminal?.writeln(`\n\x1b[31m● Erreur de connexion WebSocket\x1b[0m`);
       terminal?.writeln(`\x1b[90m  URL: ${WS_URL}\x1b[0m`);
-      console.error('[Terminal] WS error', ev);
     };
   }
 
   function sendResize() {
     if (ws?.readyState === WebSocket.OPEN && terminal) {
-      const ctrl = JSON.stringify({
+      ws.send(JSON.stringify({
         type: 'resize',
         rows: terminal.rows,
         cols: terminal.cols,
-      });
-      ws.send(ctrl);
+      }));
     }
   }
 
@@ -150,25 +145,70 @@
   }
 
   function focusTerminal() {
-    terminal?.focus();
-    console.debug('[Terminal] Manual focus. Active element:', document.activeElement?.tagName, document.activeElement?.className);
+    if (!terminal) return;
+    terminal.focus();
+    // Aussi focus le textarea helper directement
+    const ta = container?.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement;
+    if (ta) ta.focus();
+  }
+
+  // Fallback : si xterm.js ne capte pas les touches, on les envoie
+  // directement via un keydown listener sur le conteneur
+  function handleContainerKeydown(e: KeyboardEvent) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    // Ne pas interférer si xterm.js gère déjà (target = textarea helper)
+    if ((e.target as HTMLElement)?.classList?.contains('xterm-helper-textarea')) return;
+
+    // Touches spéciales
+    if (e.key === 'Enter') { ws.send('\r'); e.preventDefault(); return; }
+    if (e.key === 'Backspace') { ws.send('\x7f'); e.preventDefault(); return; }
+    if (e.key === 'Tab') { ws.send('\t'); e.preventDefault(); return; }
+    if (e.key === 'Escape') { ws.send('\x1b'); e.preventDefault(); return; }
+    if (e.key === 'ArrowUp') { ws.send('\x1b[A'); e.preventDefault(); return; }
+    if (e.key === 'ArrowDown') { ws.send('\x1b[B'); e.preventDefault(); return; }
+    if (e.key === 'ArrowRight') { ws.send('\x1b[C'); e.preventDefault(); return; }
+    if (e.key === 'ArrowLeft') { ws.send('\x1b[D'); e.preventDefault(); return; }
+
+    // Ctrl+C, Ctrl+D, etc.
+    if (e.ctrlKey && e.key.length === 1) {
+      const code = e.key.toLowerCase().charCodeAt(0) - 96;
+      if (code > 0 && code <= 26) {
+        ws.send(String.fromCharCode(code));
+        e.preventDefault();
+        return;
+      }
+    }
+
+    // Caractères imprimables
+    if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      ws.send(e.key);
+      e.preventDefault();
+    }
   }
 
   onDestroy(() => {
     ws?.close();
+    dataListenerDispose?.();
     terminal?.dispose();
   });
 </script>
 
 <div class="terminal-panel">
   <div class="term-topbar">
-    <span class="term-title">⌨️ Terminal Shell</span>
+    <span class="term-title">Terminal Shell</span>
     <div class="term-actions">
-      <button class="term-btn" onclick={() => terminal?.clear()} title="Effacer">⌫ Effacer</button>
-      <button class="term-btn" onclick={reconnect} title="Reconnecter">↺ Reconnecter</button>
+      <button class="term-btn" onclick={() => terminal?.clear()} title="Effacer">Effacer</button>
+      <button class="term-btn" onclick={reconnect} title="Reconnecter">Reconnecter</button>
     </div>
   </div>
-  <div class="xterm-wrap" bind:this={container} onclick={focusTerminal} tabindex="-1"></div>
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+  <div
+    class="xterm-wrap"
+    bind:this={container}
+    onclick={focusTerminal}
+    onkeydown={handleContainerKeydown}
+    tabindex="0"
+  ></div>
 </div>
 
 <style>
@@ -213,8 +253,22 @@
 
   .xterm-wrap {
     flex: 1;
-    padding: 8px;
     overflow: hidden;
+    position: relative;
+    outline: none;
+  }
+
+  .xterm-wrap:focus-within {
+    /* Indication visuelle que le terminal a le focus */
+    box-shadow: inset 0 0 0 1px rgba(124,111,247,0.3);
+  }
+
+  /* S'assure que le textarea helper de xterm.js est accessible */
+  :global(.xterm-helper-textarea) {
+    position: absolute !important;
+    opacity: 0 !important;
+    z-index: 10 !important;
+    pointer-events: auto !important;
   }
 
   :global(.xterm-viewport) { overflow-y: auto !important; }
