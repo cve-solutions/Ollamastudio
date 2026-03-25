@@ -15,7 +15,7 @@ from app.services.debug import debug_buffer
 
 import os
 
-__version__ = os.environ.get("APP_VERSION", "0.0.2")
+__version__ = os.environ.get("APP_VERSION", "0.0.9")
 
 _log_level = getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO)
 logging.basicConfig(
