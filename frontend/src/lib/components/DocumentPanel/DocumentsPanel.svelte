@@ -128,7 +128,7 @@
         <input
           class="path-input"
           bind:value={folderPath}
-          placeholder="/app/documents/mon-projet ou /app/workspace/src"
+          placeholder="/host/chemin/vers/projet ou /app/workspace/src"
           onkeydown={(e) => e.key === 'Enter' && importFolder()}
         />
         <button
@@ -139,7 +139,7 @@
           {importing ? '⏳ Import…' : '📥 Importer'}
         </button>
       </div>
-      <p class="hint">Chemin absolu dans le conteneur backend — dossiers et sous-dossiers inclus</p>
+      <p class="hint">Chemins serveur : /host/... (fichiers hôte), /app/workspace/... ou /app/documents/...</p>
     </div>
 
     <!-- Upload drag-and-drop -->
