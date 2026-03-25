@@ -151,7 +151,7 @@
       <button class="term-btn" onclick={reconnect} title="Reconnecter">↺ Reconnecter</button>
     </div>
   </div>
-  <div class="xterm-wrap" bind:this={container} on:click={() => terminal?.focus()}></div>
+  <div class="xterm-wrap" bind:this={container} onclick={() => terminal?.focus()}></div>
 </div>
 
 <style>
