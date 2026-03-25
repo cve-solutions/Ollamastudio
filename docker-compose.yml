@@ -11,7 +11,6 @@ services:
       - ./backend/data:/app/data:z          # SQLite + skills + templates
       - ./backend/workspace:/app/workspace:z # Workspace fichiers utilisateur
       - ./backend/documents:/app/documents:z # Documents importés
-      - ./VERSION:/app/VERSION:ro            # Version centralisée
     environment:
       - WORKSPACE_ROOT=/app/workspace
       - DATA_DIR=/app/data
