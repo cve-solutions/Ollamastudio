@@ -1,8 +1,11 @@
 /**
  * Client API OllamaStudio — toutes les requêtes HTTP vers le backend FastAPI.
+ *
+ * Toutes les requêtes passent par le proxy SvelteKit (/api/* → backend).
+ * En dev sans proxy, fallback sur http://localhost:8000.
  */
 
-const BASE = import.meta.env.PUBLIC_API_URL || 'http://localhost:8000';
+const BASE = '';  // Requêtes relatives — proxifiées par hooks.server.ts
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(`${BASE}${path}`, {
@@ -110,8 +113,8 @@ export async function* streamChat(req: ChatRequest): AsyncGenerator<ChatEvent> {
       if (line.startsWith('data: ')) {
         try {
           yield JSON.parse(line.slice(6)) as ChatEvent;
-        } catch {
-          /* ignore */
+        } catch (e) {
+          console.warn('[Chat SSE] Parse error:', e, 'raw:', line.slice(6, 200));
         }
       }
     }
@@ -296,6 +299,37 @@ export interface McpServer {
   enabled: boolean;
   type: string;
 }
+
+// ── Debug ──────────────────────────────────────────────────────────────────
+
+export interface DebugEntry {
+  timestamp: number;
+  level: string;
+  category: string;
+  message: string;
+  details: Record<string, unknown>;
+}
+
+export const debugApi = {
+  getLogs: (limit = 100, category?: string, level?: string, since?: number) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (category) params.set('category', category);
+    if (level) params.set('level', level);
+    if (since) params.set('since', String(since));
+    return api<{ enabled: boolean; entries: DebugEntry[]; total: number }>(
+      `/api/debug/logs?${params}`
+    );
+  },
+  toggle: (enabled?: boolean) =>
+    api<{ debug_mode: boolean }>('/api/debug/toggle', {
+      method: 'POST',
+      body: JSON.stringify(enabled !== undefined ? { enabled } : {}),
+    }),
+  clear: () =>
+    api<{ cleared: boolean }>('/api/debug/logs', { method: 'DELETE' }),
+};
+
+// ── MCP ───────────────────────────────────────────────────────────────────────
 
 export const mcpApi = {
   list: () => api<McpServer[]>('/api/mcp/servers'),

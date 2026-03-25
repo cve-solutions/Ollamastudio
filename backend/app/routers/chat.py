@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.loop import agentic_loop
 from app.database import Message, Session, get_db
 from app.services.settings import get_setting_value
+from app.services.debug import debug_buffer
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -64,6 +65,8 @@ async def chat_stream(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> StreamingResponse:
     """Stream SSE d'un échange agentique complet."""
+    debug_buffer.log("INFO", "chat",
+                     f"Chat stream: session={req.session_id} model={req.model} tools={req.enabled_tools}")
     session = await _get_session_or_404(req.session_id, db)
     history, _ = await _get_history(req.session_id, db)
 
@@ -122,6 +125,7 @@ async def chat_stream(
 
         except Exception as e:
             logger.exception("Erreur stream chat: %s", e)
+            debug_buffer.log("ERROR", "chat", f"Erreur stream: {e}", error=str(e), error_type=type(e).__name__)
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
 
         finally:

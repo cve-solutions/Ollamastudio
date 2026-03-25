@@ -9,9 +9,14 @@
   let ws: WebSocket | null = null;
   let mounted = false;
 
+  // WebSocket URL — même hostname que le navigateur, port 8000 (backend)
+  // Le WS ne passe pas par le proxy SvelteKit (pas de support WS natif),
+  // il est connecté directement au backend exposé sur le port 8000.
   const WS_URL = (() => {
-    const base = import.meta.env.PUBLIC_API_URL || 'http://localhost:8000';
-    return base.replace(/^http/, 'ws') + '/api/shell/ws';
+    if (typeof window === 'undefined') return 'ws://localhost:8000/api/shell/ws';
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const hostname = window.location.hostname;
+    return `${proto}//${hostname}:8000/api/shell/ws`;
   })();
 
   onMount(async () => {
@@ -94,12 +99,19 @@
       }
     };
 
-    ws.onclose = () => {
-      terminal?.writeln('\n\x1b[31m● Connexion fermée\x1b[0m');
+    ws.onclose = (ev) => {
+      const reason = ev.reason ? ` (${ev.reason})` : '';
+      terminal?.writeln(`\n\x1b[31m● Connexion fermée [code=${ev.code}]${reason}\x1b[0m`);
+      terminal?.writeln(`\x1b[90m  URL: ${WS_URL}\x1b[0m`);
+      terminal?.writeln(`\x1b[90m  Cliquez "Reconnecter" pour réessayer\x1b[0m`);
+      console.warn('[Terminal WS] close', { code: ev.code, reason: ev.reason, wasClean: ev.wasClean, url: WS_URL });
     };
 
-    ws.onerror = () => {
-      terminal?.writeln('\n\x1b[31m● Erreur de connexion WebSocket\x1b[0m');
+    ws.onerror = (ev) => {
+      terminal?.writeln(`\n\x1b[31m● Erreur de connexion WebSocket\x1b[0m`);
+      terminal?.writeln(`\x1b[90m  URL: ${WS_URL}\x1b[0m`);
+      terminal?.writeln(`\x1b[90m  Vérifiez que le backend est démarré et accessible\x1b[0m`);
+      console.error('[Terminal WS] error', ev, { url: WS_URL });
     };
   }
 

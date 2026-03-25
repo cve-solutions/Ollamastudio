@@ -8,6 +8,7 @@ from typing import AsyncGenerator
 from app.agents.tools import TOOL_SCHEMAS, execute_tool
 from app.config import settings
 from app.services.ollama import OllamaClient
+from app.services.debug import debug_buffer
 
 logger = logging.getLogger(__name__)
 
@@ -45,9 +46,11 @@ async def agentic_loop(
     history = list(messages)
     iterations = 0
 
+    debug_buffer.log("INFO", "chat", f"Boucle agentique: model={model} tools={len(tools)} msgs={len(history)}")
+
     while iterations < MAX_ITERATIONS:
         iterations += 1
-        logger.debug("Itération agent #%d", iterations)
+        debug_buffer.log("DEBUG", "chat", f"Itération agent #{iterations}")
 
         # Accumule le contenu texte et les tool calls pendant le stream
         text_buffer = ""
@@ -64,7 +67,8 @@ async def agentic_loop(
         ):
             try:
                 chunk = json.loads(raw_chunk)
-            except (json.JSONDecodeError, ValueError):
+            except (json.JSONDecodeError, ValueError) as e:
+                debug_buffer.log("WARN", "chat", f"Chunk JSON invalide: {e}", raw=raw_chunk[:200])
                 continue
 
             for choice in chunk.get("choices", []):
@@ -127,9 +131,11 @@ async def agentic_loop(
             except (json.JSONDecodeError, ValueError):
                 args = {}
 
+            debug_buffer.log("INFO", "chat", f"Tool call: {name}({list(args.keys())})", call_id=tc["id"])
             yield {"type": "tool_start", "name": name, "args": args, "call_id": tc["id"]}
 
             result = await execute_tool(name, args)
+            debug_buffer.log("DEBUG", "chat", f"Tool result: {name} → {str(result)[:200]}", call_id=tc["id"])
 
             yield {"type": "tool_result", "name": name, "result": result, "call_id": tc["id"]}
 
@@ -143,6 +149,8 @@ async def agentic_loop(
         history.extend(tool_results_msgs)
 
     else:
+        debug_buffer.log("WARN", "chat", f"Limite d'itérations atteinte ({MAX_ITERATIONS})")
         yield {"type": "error", "message": f"Limite d'itérations atteinte ({MAX_ITERATIONS})"}
 
+    debug_buffer.log("INFO", "chat", f"Boucle agentique terminée: {iterations} itération(s)")
     yield {"type": "done", "iterations": iterations}

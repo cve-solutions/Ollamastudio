@@ -110,14 +110,19 @@ export function toast(type: Toast['type'], message: string, duration = 3500) {
 
 export const selectedModel = writable<string>('qwen3-coder');
 
+// ── Debug mode ───────────────────────────────────────────────────────────────
+
+export const debugMode = writable(false);
+export const showDebugPanel = writable(false);
+
 // ── Terminal WebSocket URL ────────────────────────────────────────────────────
 
 export const wsTerminalUrl = derived(
   ollamaConfig,
   () => {
-    const base = typeof window !== 'undefined'
-      ? (import.meta.env.PUBLIC_API_URL || 'http://localhost:8000')
-      : 'http://localhost:8000';
-    return base.replace(/^http/, 'ws') + '/api/shell/ws';
+    if (typeof window === 'undefined') return 'ws://localhost:8000/api/shell/ws';
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const hostname = window.location.hostname;
+    return `${proto}//${hostname}:8000/api/shell/ws`;
   }
 );

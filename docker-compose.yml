@@ -12,14 +12,9 @@ services:
       - ./backend/workspace:/app/workspace # Workspace fichiers utilisateur
       - ./backend/documents:/app/documents # Documents importés
     environment:
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       - WORKSPACE_ROOT=/app/workspace
       - DATA_DIR=/app/data
       - DOCUMENTS_DIR=/app/documents
-      - CORS_ORIGINS=["http://localhost:5173","http://localhost:3000"]
-      - SHELL_TIMEOUT=30
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 15s
@@ -35,7 +30,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - PUBLIC_API_URL=http://backend:8000
+      - BACKEND_URL=http://backend:8000
     depends_on:
       backend:
         condition: service_healthy

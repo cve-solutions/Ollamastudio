@@ -33,15 +33,18 @@
     importing = true;
     try {
       const result = await documentsApi.importFolder(folderPath.trim()) as any;
-      toast('success', `${result.imported} fichier(s) importé(s)`);
+      toast('success', `${result.imported} fichier(s) importé(s)${result.skipped ? `, ${result.skipped} ignoré(s)` : ''}`);
       if (result.errors?.length) {
-        toast('warning', `${result.errors.length} erreur(s) — voir console`);
-        console.warn('Erreurs import:', result.errors);
+        const errorSummary = result.errors.slice(0, 3).map((e: any) => e.error || e.file).join('; ');
+        toast('warning', `${result.errors.length} erreur(s): ${errorSummary}`);
+        console.warn('[Import dossier] Erreurs détaillées:', result.errors);
       }
       folderPath = '';
       await loadDocs();
     } catch (e) {
-      toast('error', `Import échoué: ${e instanceof Error ? e.message : e}`);
+      const msg = e instanceof Error ? e.message : String(e);
+      toast('error', `Import échoué: ${msg}`);
+      console.error('[Import dossier] Exception:', e);
     } finally {
       importing = false;
     }
@@ -53,13 +56,24 @@
     const fd = new FormData();
     for (const f of files) fd.append('files', f);
     try {
-      const BASE = import.meta.env.PUBLIC_API_URL || 'http://localhost:8000';
-      const resp = await fetch(`${BASE}/api/documents/upload`, { method: 'POST', body: fd });
+      const resp = await fetch('/api/documents/upload', { method: 'POST', body: fd });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+        throw new Error(err.detail || `Erreur HTTP ${resp.status}`);
+      }
       const result = await resp.json();
-      toast('success', `${result.imported?.length ?? 0} fichier(s) importé(s)`);
+      const imported = result.imported?.length ?? 0;
+      toast('success', `${imported} fichier(s) importé(s)`);
+      if (result.errors?.length) {
+        const errorSummary = result.errors.slice(0, 3).map((e: any) => `${e.file}: ${e.error}`).join('; ');
+        toast('warning', `${result.errors.length} erreur(s): ${errorSummary}`);
+        console.warn('[Upload] Erreurs détaillées:', result.errors);
+      }
       await loadDocs();
     } catch (e) {
-      toast('error', 'Upload échoué');
+      const msg = e instanceof Error ? e.message : String(e);
+      toast('error', `Upload échoué: ${msg}`);
+      console.error('[Upload] Exception:', e);
     } finally {
       importing = false;
     }

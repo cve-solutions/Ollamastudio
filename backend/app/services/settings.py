@@ -131,6 +131,15 @@ DEFAULT_SETTINGS: list[dict[str, str]] = [
         "description": "Temps maximum d'attente pour les appels MCP",
         "value_type": "int",
     },
+    # ── Debug ──────────────────────────────────────────────────────────
+    {
+        "key": "debug_mode",
+        "value": "false",
+        "category": "debug",
+        "label": "Mode debug",
+        "description": "Active le traçage détaillé de toutes les actions (requêtes, WebSocket, imports, erreurs)",
+        "value_type": "bool",
+    },
 ]
 
 

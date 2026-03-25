@@ -1,9 +1,8 @@
 """Configuration centralisée OllamaStudio.
 
-Les chemins (workspace, data, documents) restent chargés depuis l'env/.env
-car ils sont nécessaires avant l'init de la BDD.
-Tous les autres paramètres sont désormais persistés dans la table app_settings
-et lus dynamiquement via get_setting_value().
+Les chemins sont lus depuis les variables d'environnement (docker-compose).
+Tous les autres paramètres (URL Ollama, CORS, timeouts…) sont persistés
+dans la table app_settings et gérés via l'IHM.
 """
 from pathlib import Path
 
@@ -11,16 +10,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Paramètres de démarrage — uniquement les chemins et le CORS initial."""
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    """Paramètres de démarrage — uniquement les chemins."""
+    model_config = SettingsConfigDict(env_file_encoding="utf-8", extra="ignore")
 
-    # Chemins (nécessaires avant init_db)
+    # Chemins (nécessaires avant init_db, passés par docker-compose)
     workspace_root: Path = Path("workspace")
     data_dir: Path = Path("data")
     documents_dir: Path = Path("documents")
-
-    # CORS initial (lu au démarrage, avant la BDD)
-    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
 
     @property
     def db_path(self) -> Path:

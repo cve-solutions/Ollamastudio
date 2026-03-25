@@ -6,7 +6,7 @@
     showFileExplorer, showSessionSidebar, showSettings,
     showTemplates, showSkillSelector, toasts, activePanel,
     models, modelsLoading, sessions, ollamaConfig,
-    selectedModel, skills, toast, appSettings
+    selectedModel, skills, toast, appSettings, debugMode
   } from '$lib/stores';
   import { modelsApi, sessionsApi, skillsApi, settingsApi } from '$lib/api';
 
@@ -35,6 +35,9 @@
         default_model: (settingsMap['ollama_default_model'] as string) || 'qwen3-coder',
       };
       ollamaConfig.set(cfg);
+
+      // Sync debug mode
+      debugMode.set(!!settingsMap['debug_mode']);
 
       // 2. Charge modèles, sessions et skills en parallèle
       const [modelList, sessionList, skillList] = await Promise.all([
