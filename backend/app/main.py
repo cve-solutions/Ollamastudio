@@ -13,8 +13,11 @@ from app.routers import chat, documents, files, mcp, models, sessions, settings 
 from app.services.settings import seed_default_settings, get_setting_value
 from app.services.debug import debug_buffer
 
+import os
+
+_log_level = getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper(), logging.INFO)
 logging.basicConfig(
-    level=logging.INFO,
+    level=_log_level,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
@@ -30,12 +33,12 @@ async def lifespan(app: FastAPI):
     await skills.seed_default_skills()
     await templates.seed_default_templates()
 
-    # Active le mode debug si déjà activé en BDD
-    debug_enabled = await get_setting_value("debug_mode", False)
+    # Active le mode debug si env LOG_LEVEL=DEBUG ou si activé en BDD
+    debug_enabled = os.environ.get("LOG_LEVEL", "").upper() == "DEBUG" or await get_setting_value("debug_mode", False)
     debug_buffer.enabled = bool(debug_enabled)
     if debug_enabled:
         logging.getLogger().setLevel(logging.DEBUG)
-        logger.info("Mode debug actif au démarrage")
+        logger.info("Mode DEBUG actif — toutes les requêtes HTTP et WS seront tracées")
 
     logger.info("Backend prêt — workspace: %s", settings.workspace_root)
     yield
