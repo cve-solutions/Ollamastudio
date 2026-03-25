@@ -11,12 +11,13 @@ services:
       - ./backend/data:/app/data:z          # SQLite + skills + templates
       - ./backend/workspace:/app/workspace:z # Workspace fichiers utilisateur
       - ./backend/documents:/app/documents:z # Documents importés
+      - /:/host:ro                           # Accès lecture seule au filesystem hôte → /host/...
     environment:
       - WORKSPACE_ROOT=/app/workspace
       - DATA_DIR=/app/data
       - DOCUMENTS_DIR=/app/documents
       - LOG_LEVEL=DEBUG
-      - APP_VERSION=0.0.9
+      - APP_VERSION=0.0.11
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--log-level", "debug"]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
