@@ -89,10 +89,17 @@ pub async fn test_connection(
             let data: Value = resp.json().await.unwrap_or(json!({}));
             let models = data.get("models").and_then(|m| m.as_array());
             let count = models.map(|m| m.len()).unwrap_or(0);
-            let names: Vec<String> = models
-                .map(|m| m.iter().filter_map(|v| v.get("name")?.as_str().map(String::from)).collect())
+            // Return ModelInfo objects (name, size, modified_at) not just strings
+            let model_infos: Vec<Value> = models
+                .map(|m| m.iter().map(|v| {
+                    json!({
+                        "name": v.get("name").and_then(|n| n.as_str()).unwrap_or("?"),
+                        "size": v.get("size").and_then(|n| n.as_u64()),
+                        "modified_at": v.get("modified_at").and_then(|n| n.as_str()),
+                    })
+                }).collect())
                 .unwrap_or_default();
-            Ok(Json(json!({ "connected": true, "model_count": count, "models": names })))
+            Ok(Json(json!({ "connected": true, "model_count": count, "models": model_infos })))
         }
         Ok(resp) => Ok(Json(json!({ "connected": false, "error": format!("HTTP {}", resp.status()) }))),
         Err(e) => Ok(Json(json!({ "connected": false, "error": e.to_string() }))),
