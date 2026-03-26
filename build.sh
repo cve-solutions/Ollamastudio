@@ -201,9 +201,22 @@ ENVEOF
     cat > "$PREFIX/etc/ollamastudio/frontend.env" <<ENVEOF
 # OllamaStudio Frontend Configuration
 BACKEND_URL=http://127.0.0.1:8000
-HOST=0.0.0.0
+HOST=127.0.0.1
 PORT=3000
 ENVEOF
+
+    # Nginx config
+    mkdir -p "$PREFIX/etc/nginx/sites-available"
+    mkdir -p "$PREFIX/etc/nginx/sites-enabled"
+    cp "$ROOT_DIR/nginx/ollamastudio.conf" "$PREFIX/etc/nginx/sites-available/ollamastudio"
+
+    # Script de génération SSL
+    mkdir -p "$PREFIX/usr/lib/ollamastudio"
+    cp "$ROOT_DIR/nginx/generate-ssl.sh" "$PREFIX/usr/lib/ollamastudio/generate-ssl.sh"
+    chmod 755 "$PREFIX/usr/lib/ollamastudio/generate-ssl.sh"
+
+    # Répertoire SSL (sera peuplé au postinst)
+    mkdir -p "$PREFIX/etc/ollamastudio/ssl"
 
     # Services systemd
     local SYSTEMD_DIR
@@ -258,27 +271,34 @@ SVCEOF
     mkdir -p "$PREFIX/usr/bin"
     cat > "$PREFIX/usr/bin/ollamastudio-ctl" <<'CTLEOF'
 #!/bin/bash
+SERVICES="ollamastudio-backend ollamastudio-frontend nginx"
+
 case "${1:-status}" in
     start)
-        sudo systemctl start ollamastudio-backend ollamastudio-frontend
-        echo "OllamaStudio démarré — http://$(hostname):3000"
+        sudo systemctl start $SERVICES
+        echo "OllamaStudio démarré — https://$(hostname)"
         ;;
     stop)
         sudo systemctl stop ollamastudio-frontend ollamastudio-backend
-        echo "OllamaStudio arrêté"
+        echo "OllamaStudio arrêté (nginx reste actif)"
         ;;
     restart)
-        sudo systemctl restart ollamastudio-backend ollamastudio-frontend
-        echo "OllamaStudio redémarré"
+        sudo systemctl restart $SERVICES
+        echo "OllamaStudio redémarré — https://$(hostname)"
         ;;
     status)
-        systemctl status ollamastudio-backend ollamastudio-frontend --no-pager
+        systemctl status $SERVICES --no-pager 2>/dev/null
         ;;
     logs)
         journalctl -u ollamastudio-backend -u ollamastudio-frontend -f
         ;;
+    renew-ssl)
+        sudo /usr/lib/ollamastudio/generate-ssl.sh "$2"
+        sudo systemctl reload nginx
+        echo "Certificat SSL regénéré"
+        ;;
     *)
-        echo "Usage: ollamastudio-ctl {start|stop|restart|status|logs}"
+        echo "Usage: ollamastudio-ctl {start|stop|restart|status|logs|renew-ssl [hostname]}"
         ;;
 esac
 CTLEOF
@@ -317,7 +337,7 @@ Description: $DESCRIPTION
  Inclut un terminal web, un explorateur de fichiers, un système
  de skills/templates, et un chat agentique avec tool calling.
 Homepage: $URL
-Depends: libsqlite3-0, libssl3 | libssl1.1, libc6, bash, nodejs (>= 18)
+Depends: libsqlite3-0, libssl3 | libssl1.1, libc6, bash, nodejs (>= 18), nginx, openssl
 Section: web
 Priority: optional
 Installed-Size: $(du -sk "$DEB_DIR" | cut -f1)
@@ -336,8 +356,29 @@ fi
 chown -R ollamastudio:ollamastudio /var/lib/ollamastudio
 chown -R ollamastudio:ollamastudio /opt/ollamastudio
 
+# Génère le certificat SSL self-signed si absent
+if [ ! -f /etc/ollamastudio/ssl/ollamastudio.crt ]; then
+    echo "Génération du certificat SSL self-signed..."
+    /usr/lib/ollamastudio/generate-ssl.sh
+fi
+
+# Configure Nginx
+if [ -d /etc/nginx/sites-enabled ]; then
+    # Debian/Ubuntu style
+    rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+    ln -sf /etc/nginx/sites-available/ollamastudio /etc/nginx/sites-enabled/ollamastudio
+elif [ -d /etc/nginx/conf.d ]; then
+    # RHEL/Fedora style
+    cp /etc/nginx/sites-available/ollamastudio /etc/nginx/conf.d/ollamastudio.conf
+fi
+
+# Teste la config nginx
+nginx -t 2>/dev/null && echo "  Config Nginx OK" || echo "  ATTENTION: config Nginx invalide — vérifiez manuellement"
+
 # Systemd
 systemctl daemon-reload
+systemctl enable nginx 2>/dev/null || true
+systemctl restart nginx 2>/dev/null || true
 
 echo ""
 echo "╔═══════════════════════════════════════════════════╗"
@@ -349,11 +390,14 @@ echo "║  Arrêter  :  sudo ollamastudio-ctl stop           ║"
 echo "║  Logs     :  sudo ollamastudio-ctl logs           ║"
 echo "║  Status   :  ollamastudio-ctl status              ║"
 echo "║                                                   ║"
-echo "║  Interface : http://localhost:3000                ║"
-echo "║  Config   : /etc/ollamastudio/                    ║"
+echo "║  Interface : https://$(hostname)                  ║"
+echo "║  Config    : /etc/ollamastudio/                   ║"
+echo "║  SSL       : /etc/ollamastudio/ssl/               ║"
 echo "║                                                   ║"
-echo "║  Prérequis : un serveur LLM (Ollama ou autre)      ║"
-echo "║  doit être accessible sur le réseau.              ║"
+echo "║  Remplacer le certificat SSL :                    ║"
+echo "║    sudo cp mon-cert.crt /etc/ollamastudio/ssl/ollamastudio.crt"
+echo "║    sudo cp ma-cle.key /etc/ollamastudio/ssl/ollamastudio.key"
+echo "║    sudo systemctl reload nginx                    ║"
 echo "║                                                   ║"
 echo "╚═══════════════════════════════════════════════════╝"
 echo ""
@@ -373,6 +417,7 @@ PRERMEOF
     cat > "$DEB_DIR/DEBIAN/conffiles" <<'CONFEOF'
 /etc/ollamastudio/backend.env
 /etc/ollamastudio/frontend.env
+/etc/nginx/sites-available/ollamastudio
 CONFEOF
 
     dpkg-deb --build --root-owner-group "$DEB_DIR" "$DIST_DIR/$DEB_NAME" 2>/dev/null || \
@@ -409,7 +454,7 @@ License:        $LICENSE
 URL:            $URL
 BuildArch:      $RPM_ARCH
 
-Requires:       sqlite-libs, openssl-libs, glibc, bash, nodejs >= 18
+Requires:       sqlite-libs, openssl-libs, openssl, glibc, bash, nodejs >= 18, nginx
 
 %description
 $DESCRIPTION
@@ -425,9 +470,12 @@ cp -a %{_builddir}/../BUILDROOT/%{name}-%{version}-%{release}.%{_arch}/* %{build
 %attr(755, root, root) /usr/bin/ollamastudio-ctl
 %config(noreplace) /etc/ollamastudio/backend.env
 %config(noreplace) /etc/ollamastudio/frontend.env
+/etc/nginx/sites-available/ollamastudio
+/usr/lib/ollamastudio/generate-ssl.sh
 /usr/lib/systemd/system/ollamastudio-backend.service
 /usr/lib/systemd/system/ollamastudio-frontend.service
 /opt/ollamastudio
+%dir /etc/ollamastudio/ssl
 %dir /var/lib/ollamastudio
 %dir /var/lib/ollamastudio/data
 %dir /var/lib/ollamastudio/data/skills
@@ -443,11 +491,22 @@ getent passwd ollamastudio >/dev/null || useradd -r -g ollamastudio -d /var/lib/
 %post
 chown -R ollamastudio:ollamastudio /var/lib/ollamastudio
 chown -R ollamastudio:ollamastudio /opt/ollamastudio
+# Génère le certificat SSL self-signed si absent
+if [ ! -f /etc/ollamastudio/ssl/ollamastudio.crt ]; then
+    /usr/lib/ollamastudio/generate-ssl.sh
+fi
+# Configure Nginx
+if [ -d /etc/nginx/conf.d ]; then
+    cp /etc/nginx/sites-available/ollamastudio /etc/nginx/conf.d/ollamastudio.conf 2>/dev/null || true
+fi
+nginx -t 2>/dev/null || true
 systemctl daemon-reload
+systemctl enable nginx 2>/dev/null || true
+systemctl restart nginx 2>/dev/null || true
 echo ""
 echo "=== OllamaStudio installé ==="
-echo "  Démarrer : sudo ollamastudio-ctl start"
-echo "  Interface: http://localhost:3000"
+echo "  Démarrer  : sudo ollamastudio-ctl start"
+echo "  Interface : https://$(hostname)"
 echo ""
 
 %preun
@@ -493,5 +552,10 @@ echo "    sudo dnf install dist/${APP_NAME}-${VERSION}-1.${RPM_ARCH}.rpm"
 echo ""
 echo "  Après installation :"
 echo "    sudo ollamastudio-ctl start"
-echo "    # → http://localhost:3000"
+echo "    # → https://localhost (SSL self-signed)"
+echo ""
+echo "  Remplacer le certificat SSL :"
+echo "    sudo cp cert.crt /etc/ollamastudio/ssl/ollamastudio.crt"
+echo "    sudo cp cert.key /etc/ollamastudio/ssl/ollamastudio.key"
+echo "    sudo systemctl reload nginx"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
