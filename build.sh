@@ -33,6 +33,7 @@ esac
 
 DIST_DIR="$ROOT_DIR/dist"
 BACKEND_BIN="backend-rs/target/release/ollamastudio-backend"
+AGENT_BIN="agent-mcp/target/release/agent-mcp"
 FRONTEND_BUILD="frontend/build"
 
 SKIP_FRONTEND=false
@@ -124,6 +125,19 @@ if [ ! -f "$ROOT_DIR/$BACKEND_BIN" ]; then
     fail "Binaire backend non trouvé: $BACKEND_BIN"
 fi
 ok "Backend compilé: $(du -h "$ROOT_DIR/$BACKEND_BIN" | cut -f1)"
+
+# ═══════════════════════════════════════════════════════════════════════
+# 2b. COMPILATION AGENT MCP (Rust)
+# ═══════════════════════════════════════════════════════════════════════
+step "2b/6 — Compilation de l'Agent MCP (release)"
+
+cd "$ROOT_DIR/agent-mcp"
+cargo build --release 2>&1 | grep -E "Compiling|Finished|warning\[" | tail -5
+
+if [ ! -f "$ROOT_DIR/$AGENT_BIN" ]; then
+    fail "Binaire agent-mcp non trouvé: $AGENT_BIN"
+fi
+ok "Agent MCP compilé: $(du -h "$ROOT_DIR/$AGENT_BIN" | cut -f1)"
 
 # ═══════════════════════════════════════════════════════════════════════
 # 3. BUILD FRONTEND
@@ -532,14 +546,190 @@ SPECEOF
     fi
 }
 
+# ── Agent MCP packages ────────────────────────────────────────────────
+
+build_agent_deb() {
+    if ! command -v dpkg-deb >/dev/null 2>&1; then return; fi
+
+    info "Construction du package agent-mcp .deb..."
+
+    local DEB_DIR="$DIST_DIR/agent-deb-root"
+    local DEB_NAME="agent-mcp_${VERSION}_${ARCH}.deb"
+
+    rm -rf "$DEB_DIR"
+    mkdir -p "$DEB_DIR/DEBIAN"
+    mkdir -p "$DEB_DIR/usr/bin"
+    mkdir -p "$DEB_DIR/lib/systemd/system"
+    mkdir -p "$DEB_DIR/etc/ollamastudio"
+
+    cp "$ROOT_DIR/$AGENT_BIN" "$DEB_DIR/usr/bin/agent-mcp"
+    chmod 755 "$DEB_DIR/usr/bin/agent-mcp"
+    strip "$DEB_DIR/usr/bin/agent-mcp" 2>/dev/null || true
+
+    cat > "$DEB_DIR/etc/ollamastudio/agent-mcp.env" <<'ENVEOF'
+# Agent MCP Configuration
+MCP_PORT=9100
+LOG_LEVEL=info
+ENVEOF
+
+    cat > "$DEB_DIR/lib/systemd/system/agent-mcp.service" <<'SVCEOF'
+[Unit]
+Description=OllamaStudio Agent MCP — Administration système
+After=network.target
+
+[Service]
+Type=simple
+User=root
+EnvironmentFile=/etc/ollamastudio/agent-mcp.env
+ExecStart=/usr/bin/agent-mcp
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
+    cat > "$DEB_DIR/DEBIAN/control" <<CTLEOF
+Package: agent-mcp
+Version: $VERSION
+Architecture: $ARCH
+Maintainer: $MAINTAINER
+Description: OllamaStudio Agent MCP — Serveur MCP pour administration système complète
+ Permet au LLM d'interagir avec la machine en tant que root :
+ fichiers, packages, services, cron, réseau, processus, utilisateurs.
+ Tourne en tant que service systemd sur le port 9100.
+Homepage: $URL
+Depends: bash, coreutils
+Section: admin
+Priority: optional
+Installed-Size: $(du -sk "$DEB_DIR/usr" | cut -f1)
+CTLEOF
+
+    cat > "$DEB_DIR/DEBIAN/postinst" <<'POSTEOF'
+#!/bin/bash
+set -e
+systemctl daemon-reload
+systemctl enable agent-mcp 2>/dev/null || true
+systemctl start agent-mcp 2>/dev/null || true
+echo ""
+echo "=== Agent MCP installé ==="
+echo "  Service : agent-mcp (port 9100)"
+echo "  Statut  : sudo systemctl status agent-mcp"
+echo "  Config  : /etc/ollamastudio/agent-mcp.env"
+echo ""
+echo "  ATTENTION : ce service tourne en tant que root"
+echo "  et peut exécuter n'importe quelle commande système."
+echo ""
+POSTEOF
+    chmod 755 "$DEB_DIR/DEBIAN/postinst"
+
+    cat > "$DEB_DIR/DEBIAN/prerm" <<'PRERMEOF'
+#!/bin/bash
+systemctl stop agent-mcp 2>/dev/null || true
+systemctl disable agent-mcp 2>/dev/null || true
+PRERMEOF
+    chmod 755 "$DEB_DIR/DEBIAN/prerm"
+
+    cat > "$DEB_DIR/DEBIAN/conffiles" <<'CONFEOF'
+/etc/ollamastudio/agent-mcp.env
+CONFEOF
+
+    dpkg-deb --build --root-owner-group "$DEB_DIR" "$DIST_DIR/$DEB_NAME" 2>/dev/null || \
+    dpkg-deb --build "$DEB_DIR" "$DIST_DIR/$DEB_NAME"
+
+    rm -rf "$DEB_DIR"
+    ok "agent-mcp .deb créé: dist/$DEB_NAME ($(du -h "$DIST_DIR/$DEB_NAME" | cut -f1))"
+}
+
+build_agent_rpm() {
+    if ! command -v rpmbuild >/dev/null 2>&1; then return; fi
+
+    info "Construction du package agent-mcp .rpm..."
+
+    local RPM_ROOT="$DIST_DIR/agent-rpmbuild"
+    rm -rf "$RPM_ROOT"
+    mkdir -p "$RPM_ROOT"/{BUILD,RPMS,SOURCES,SPECS,SRPMS,BUILDROOT}
+
+    local STAGING="$RPM_ROOT/STAGING"
+    mkdir -p "$STAGING/usr/bin"
+    mkdir -p "$STAGING/usr/lib/systemd/system"
+    mkdir -p "$STAGING/etc/ollamastudio"
+
+    cp "$ROOT_DIR/$AGENT_BIN" "$STAGING/usr/bin/agent-mcp"
+    chmod 755 "$STAGING/usr/bin/agent-mcp"
+    strip "$STAGING/usr/bin/agent-mcp" 2>/dev/null || true
+
+    cat > "$STAGING/etc/ollamastudio/agent-mcp.env" <<'ENVEOF'
+MCP_PORT=9100
+LOG_LEVEL=info
+ENVEOF
+
+    cat > "$STAGING/usr/lib/systemd/system/agent-mcp.service" <<'SVCEOF'
+[Unit]
+Description=OllamaStudio Agent MCP — Administration système
+After=network.target
+
+[Service]
+Type=simple
+User=root
+EnvironmentFile=/etc/ollamastudio/agent-mcp.env
+ExecStart=/usr/bin/agent-mcp
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
+    cat > "$RPM_ROOT/SPECS/agent-mcp.spec" <<SPECEOF
+Name:           agent-mcp
+Version:        $VERSION
+Release:        1
+Summary:        OllamaStudio Agent MCP — Administration système
+License:        $LICENSE
+URL:            $URL
+BuildArch:      $RPM_ARCH
+AutoReqProv:    no
+Requires:       bash, coreutils
+
+%description
+Serveur MCP pour administration système complète.
+Tourne en root, port 9100. Fichiers, packages, services, cron, réseau.
+
+%install
+cp -a $STAGING/* %{buildroot}/
+
+%files
+%attr(755, root, root) /usr/bin/agent-mcp
+%config(noreplace) /etc/ollamastudio/agent-mcp.env
+/usr/lib/systemd/system/agent-mcp.service
+
+%post
+systemctl daemon-reload
+systemctl enable agent-mcp 2>/dev/null || true
+systemctl start agent-mcp 2>/dev/null || true
+
+%preun
+systemctl stop agent-mcp 2>/dev/null || true
+systemctl disable agent-mcp 2>/dev/null || true
+SPECEOF
+
+    rpmbuild --define "_topdir $RPM_ROOT" -bb "$RPM_ROOT/SPECS/agent-mcp.spec" 2>&1 | tail -3
+    find "$RPM_ROOT/RPMS" -name "*.rpm" -exec cp {} "$DIST_DIR/" \;
+    rm -rf "$RPM_ROOT"
+    ok "agent-mcp .rpm créé"
+}
+
 # ── Exécution ─────────────────────────────────────────────────────────
 
 if [ "$RPM_ONLY" = false ]; then
     build_deb
+    build_agent_deb
 fi
 
 if [ "$DEB_ONLY" = false ]; then
     build_rpm
+    build_agent_rpm
 fi
 
 # ── Résumé ────────────────────────────────────────────────────────────
@@ -549,14 +739,15 @@ info "Packages générés dans dist/:"
 ls -lh "$DIST_DIR"/*.{deb,rpm} 2>/dev/null || warn "Aucun package généré"
 echo ""
 echo "  Installation Debian/Ubuntu :"
-echo "    sudo apt install ./dist/${APP_NAME}_${VERSION}_${ARCH}.deb"
+echo "    sudo apt install ./dist/${APP_NAME}_${VERSION}_${ARCH}.deb ./dist/agent-mcp_${VERSION}_${ARCH}.deb"
 echo ""
 echo "  Installation Fedora/RHEL :"
-echo "    sudo dnf install dist/${APP_NAME}-${VERSION}-1.${RPM_ARCH}.rpm"
+echo "    sudo dnf install ./dist/${APP_NAME}-${VERSION}-1.${RPM_ARCH}.rpm ./dist/agent-mcp-${VERSION}-1.${RPM_ARCH}.rpm"
 echo ""
 echo "  Après installation :"
 echo "    sudo ollamastudio-ctl start"
-echo "    # → https://localhost (SSL self-signed)"
+echo "    # OllamaStudio : https://localhost (SSL self-signed)"
+echo "    # Agent MCP    : http://localhost:9100 (JSON-RPC, root)"
 echo ""
 echo "  Remplacer le certificat SSL :"
 echo "    sudo cp cert.crt /etc/ollamastudio/ssl/ollamastudio.crt"
