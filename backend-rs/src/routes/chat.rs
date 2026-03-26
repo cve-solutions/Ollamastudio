@@ -259,14 +259,23 @@ async fn build_mcp_context(config: &crate::config::Config) -> String {
     let mut ctx = String::from(
         "## Serveurs MCP disponibles\n\
          Tu as accès à des serveurs MCP (Model Context Protocol) qui étendent tes capacités.\n\
-         Les outils MCP sont préfixés par `mcp__{server_id}__` suivi du nom de l'outil.\n\n\
-         IMPORTANT:\n\
+         Les outils MCP sont préfixés par `mcp__{server_id}__` suivi du nom de l'outil.\n\
+         IMPORTANT : utilise TOUJOURS le double underscore __ comme séparateur.\n\
+         Exemple : `mcp__agent-mcp__shell_exec` (pas `mcp__agent-mcp_shell_exec`).\n\n\
+         RÈGLES D'UTILISATION :\n\
          - Pour exécuter des commandes SYSTÈME (installer des paquets, créer des fichiers,\n\
-           gérer des services, modifier des configs) → utilise les outils `mcp__agent-mcp__*`\n\
+           gérer des services, modifier des configs) → utilise `mcp__agent-mcp__*`\n\
          - Pour interagir avec une API GitHub/GitLab (repos, issues, PRs, pipelines)\n\
-           → utilise les outils `mcp__github__*` ou `mcp__gitlab__*`\n\
-         - NE CONFONDS PAS : \"installer GitLab sur le serveur\" = commandes système (agent-mcp),\n\
-           \"lister les issues GitLab\" = API GitLab (gitlab)\n\n\
+           → utilise `mcp__github__*` ou `mcp__gitlab__*`\n\
+         - NE CONFONDS PAS : \"installer GitLab sur le serveur\" = agent-mcp (système),\n\
+           \"lister les issues GitLab\" = gitlab (API)\n\n\
+         AUTONOMIE :\n\
+         - Si un outil ou un paquet système est manquant pour réaliser une action,\n\
+           utilise `mcp__agent-mcp__pkg_install` pour l'installer automatiquement.\n\
+         - Si une commande échoue avec \"command not found\", installe le paquet correspondant\n\
+           puis réessaie la commande.\n\
+         - Tu peux enchaîner plusieurs appels d'outils dans la même conversation.\n\
+         - Tu as accès ROOT au serveur via l'agent MCP : utilise ce pouvoir avec discernement.\n\n\
          Serveurs actifs:\n"
     );
 

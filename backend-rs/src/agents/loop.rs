@@ -244,11 +244,30 @@ pub fn agentic_loop(
 
                 // Route : outil MCP ou outil interne ?
                 let result = if name.starts_with("mcp__") {
-                    // Trouve l'outil MCP dans le registre
-                    if let Some(mcp_tool) = mcp_registry.iter().find(|t| t.qualified_name == *name) {
+                    // Trouve l'outil MCP dans le registre — match exact ou fuzzy
+                    let mcp_tool = mcp_registry.iter().find(|t| t.qualified_name == *name)
+                        .or_else(|| {
+                            // Fuzzy match : le LLM peut utiliser un seul _ au lieu de __
+                            let normalized = name.replace("___", "__").replace("mcp__", "");
+                            mcp_registry.iter().find(|t| {
+                                let t_short = t.qualified_name.replace("mcp__", "");
+                                t_short == normalized
+                                    || t_short.replace("__", "_") == normalized
+                                    || t.remote_name == normalized.split('_').last().unwrap_or("")
+                                    || t.remote_name == normalized.split("__").last().unwrap_or("")
+                            })
+                        });
+                    if let Some(mcp_tool) = mcp_tool {
                         mcp_proxy::execute_mcp_tool(mcp_tool, &args).await
                     } else {
-                        json!({"error": format!("MCP tool not found: {name}")})
+                        // Dernier recours : cherche juste le nom de l'outil sans le préfixe serveur
+                        let tool_part = name.rsplit("__").next().or(name.rsplit('_').next()).unwrap_or(name);
+                        if let Some(mcp_tool) = mcp_registry.iter().find(|t| t.remote_name == tool_part) {
+                            mcp_proxy::execute_mcp_tool(mcp_tool, &args).await
+                        } else {
+                            json!({"error": format!("Outil MCP introuvable: {name}. Outils disponibles: {}",
+                                mcp_registry.iter().map(|t| t.qualified_name.as_str()).collect::<Vec<_>>().join(", "))})
+                        }
                     }
                 } else {
                     execute_tool(name, args, &config, &pool).await
