@@ -40,11 +40,12 @@
       debugMode.set(!!settingsMap['debug_mode']);
 
       // 2. Charge version, modèles, sessions et skills en parallèle
+      // Chaque appel est indépendant — un échec (ex: Ollama down) ne bloque pas les autres
       const [healthData, modelList, sessionList, skillList] = await Promise.all([
         fetch('/health').then(r => r.json()).catch(() => ({ version: '' })),
-        modelsApi.list(cfg.base_url),
-        sessionsApi.list(),
-        skillsApi.list(),
+        modelsApi.list(cfg.base_url).catch(() => [] as any[]),
+        sessionsApi.list().catch(() => []),
+        skillsApi.list().catch(() => []),
       ]);
       if (healthData.version) appVersion.set(healthData.version);
       models.set(modelList);
