@@ -444,7 +444,11 @@ build_rpm() {
     local BR="$RPM_ROOT/BUILDROOT/${APP_NAME}-${VERSION}-1.${RPM_ARCH}"
     populate_install_tree "$BR"
 
-    # Spec file
+    # Spec file — on utilise %install pour copier depuis un staging dir
+    local STAGING="$RPM_ROOT/STAGING"
+    mv "$BR" "$STAGING"
+    mkdir -p "$BR"  # rpmbuild needs the BUILDROOT dir to exist
+
     cat > "$RPM_ROOT/SPECS/$APP_NAME.spec" <<SPECEOF
 Name:           $APP_NAME
 Version:        $VERSION
@@ -453,17 +457,18 @@ Summary:        $DESCRIPTION
 License:        $LICENSE
 URL:            $URL
 BuildArch:      $RPM_ARCH
+AutoReqProv:    no
 
 Requires:       sqlite-libs, openssl-libs, openssl, glibc, bash, nodejs >= 18, nginx
 
 %description
 $DESCRIPTION
 Backend Rust + Frontend SvelteKit pour interagir avec Ollama.
-Inclut un terminal web, un explorateur de fichiers, un système
+Inclut un terminal web, un explorateur de fichiers, un systeme
 de skills/templates, et un chat agentique avec tool calling.
 
 %install
-cp -a %{_builddir}/../BUILDROOT/%{name}-%{version}-%{release}.%{_arch}/* %{buildroot}/
+cp -a $STAGING/* %{buildroot}/
 
 %files
 %attr(755, root, root) /usr/bin/ollamastudio-backend
