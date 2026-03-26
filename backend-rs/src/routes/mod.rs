@@ -1,3 +1,4 @@
+pub mod files;
 pub mod health;
 pub mod settings;
 pub mod sessions;
@@ -25,4 +26,12 @@ pub fn api_router() -> Router<AppState> {
                 .delete(sessions::delete_session),
         )
         .route("/api/sessions/{id}/messages", get(sessions::get_messages))
+        // Files
+        .route("/api/files/tree", get(files::get_tree))
+        .route("/api/files/read", get(files::read_file))
+        .route("/api/files/write", post(files::write_file))
+        .route("/api/files/delete", delete(files::delete_path))
+        .route("/api/files/rename", post(files::rename_path))
+        .route("/api/files/mkdir", post(files::mkdir))
+        .route("/api/files/upload", post(files::upload_file))
 }
