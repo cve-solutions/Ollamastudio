@@ -11,6 +11,7 @@ pub struct Skill {
     pub description: String,
     #[serde(default = "default_icon")]
     pub icon: String,
+    #[serde(default)]
     pub system_prompt: String,
     #[serde(default)]
     pub enabled_tools: Option<Vec<String>>,
@@ -20,6 +21,10 @@ pub struct Skill {
     pub max_tokens: u32,
     #[serde(default = "default_color")]
     pub color: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub category: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub format_tag: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,6 +35,7 @@ pub struct SkillCreate {
     pub description: String,
     #[serde(default = "default_icon")]
     pub icon: String,
+    #[serde(default)]
     pub system_prompt: String,
     #[serde(default)]
     pub enabled_tools: Option<Vec<String>>,
@@ -39,6 +45,10 @@ pub struct SkillCreate {
     pub max_tokens: u32,
     #[serde(default = "default_color")]
     pub color: String,
+    #[serde(default)]
+    pub category: String,
+    #[serde(default)]
+    pub format_tag: String,
 }
 
 fn default_icon() -> String {
@@ -89,6 +99,8 @@ pub fn default_skills() -> [Skill; DEFAULT_SKILLS_COUNT] {
             temperature: 0.7,
             max_tokens: 4096,
             color: "#6366f1".to_string(),
+            category: String::new(),
+            format_tag: String::new(),
         },
         Skill {
             id: "code-review".to_string(),
@@ -109,6 +121,8 @@ pub fn default_skills() -> [Skill; DEFAULT_SKILLS_COUNT] {
             temperature: 0.3,
             max_tokens: 8192,
             color: "#f59e0b".to_string(),
+            category: String::new(),
+            format_tag: String::new(),
         },
         Skill {
             id: "devops".to_string(),
@@ -130,6 +144,8 @@ pub fn default_skills() -> [Skill; DEFAULT_SKILLS_COUNT] {
             temperature: 0.5,
             max_tokens: 4096,
             color: "#10b981".to_string(),
+            category: String::new(),
+            format_tag: String::new(),
         },
         Skill {
             id: "rust-expert".to_string(),
@@ -150,6 +166,8 @@ pub fn default_skills() -> [Skill; DEFAULT_SKILLS_COUNT] {
             temperature: 0.4,
             max_tokens: 8192,
             color: "#ef4444".to_string(),
+            category: String::new(),
+            format_tag: String::new(),
         },
         Skill {
             id: "security-audit".to_string(),
@@ -170,6 +188,8 @@ pub fn default_skills() -> [Skill; DEFAULT_SKILLS_COUNT] {
             temperature: 0.2,
             max_tokens: 8192,
             color: "#8b5cf6".to_string(),
+            category: String::new(),
+            format_tag: String::new(),
         },
     ]
 }

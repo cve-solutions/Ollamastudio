@@ -13,6 +13,11 @@ use crate::state::AppState;
 
 // ── Types ──
 
+/// Types de serveur MCP supportés :
+/// - "http"    : serveur MCP JSON-RPC générique
+/// - "github"  : GitHub API (token dans auth_token)
+/// - "gitlab"  : GitLab API (token dans auth_token)
+/// - "command" : commande locale (ex: npx @modelcontextprotocol/server-*)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpServer {
     pub id: String,
@@ -26,6 +31,16 @@ pub struct McpServer {
     pub server_type: String,
     #[serde(default)]
     pub headers: HashMap<String, String>,
+    /// Token d'authentification (GitHub PAT, GitLab token, etc.)
+    /// Stocké en clair dans le YAML — ne pas exposer via l'API publique
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub auth_token: String,
+    /// Organisation/groupe par défaut (optionnel)
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub organization: String,
+    /// Catégorie pour le regroupement dans l'UI
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub category: String,
 }
 
 fn default_server_type() -> String {
@@ -44,31 +59,52 @@ pub struct CallToolQuery {
 fn default_servers() -> Vec<McpServer> {
     vec![
         McpServer {
-            id: "filesystem".into(),
-            name: "Filesystem MCP".into(),
-            description: "Acces etendu au systeme de fichiers via MCP".into(),
-            url: "http://localhost:3001".into(),
-            enabled: false,
+            id: "agent-mcp".into(),
+            name: "Agent MCP (Système)".into(),
+            description: "Administration système complète — fichiers, packages, services, cron, réseau, processus (root)".into(),
+            url: "http://127.0.0.1:9100".into(),
+            enabled: true,
             server_type: "http".into(),
             headers: HashMap::new(),
+            auth_token: String::new(),
+            organization: String::new(),
+            category: "Système".into(),
         },
         McpServer {
-            id: "git".into(),
-            name: "Git MCP".into(),
-            description: "Operations Git avancees via MCP".into(),
-            url: "http://localhost:3002".into(),
+            id: "github".into(),
+            name: "GitHub".into(),
+            description: "Repositories, issues, pull requests, actions, releases GitHub".into(),
+            url: "https://api.github.com".into(),
             enabled: false,
-            server_type: "http".into(),
+            server_type: "github".into(),
             headers: HashMap::new(),
+            auth_token: String::new(), // → Renseigner un Personal Access Token
+            organization: String::new(),
+            category: "Git".into(),
+        },
+        McpServer {
+            id: "gitlab".into(),
+            name: "GitLab".into(),
+            description: "Repositories, merge requests, pipelines, registres GitLab".into(),
+            url: "https://gitlab.com".into(),
+            enabled: false,
+            server_type: "gitlab".into(),
+            headers: HashMap::new(),
+            auth_token: String::new(), // → Renseigner un Personal Access Token
+            organization: String::new(),
+            category: "Git".into(),
         },
         McpServer {
             id: "datagouv".into(),
             name: "DataGouv.FR".into(),
-            description: "APIs data.gouv.fr -- portail open data francais".into(),
+            description: "APIs data.gouv.fr — portail open data français".into(),
             url: "https://mcp.data.gouv.fr/mcp".into(),
             enabled: false,
             server_type: "http".into(),
             headers: HashMap::new(),
+            auth_token: String::new(),
+            organization: String::new(),
+            category: "Open Data".into(),
         },
     ]
 }
@@ -82,7 +118,10 @@ fn config_path(state: &AppState) -> PathBuf {
 async fn load_servers(state: &AppState) -> Result<Vec<McpServer>, AppError> {
     let path = config_path(state);
     if !path.exists() {
-        return Ok(default_servers());
+        // Persiste les defaults pour qu'ils soient modifiables via l'UI
+        let defaults = default_servers();
+        save_servers(state, &defaults).await?;
+        return Ok(defaults);
     }
     let content = fs::read_to_string(&path).await?;
     let servers: Vec<McpServer> =
@@ -119,6 +158,106 @@ fn find_server(servers: &[McpServer], id: &str) -> Result<McpServer, AppError> {
         .find(|s| s.id == id)
         .cloned()
         .ok_or_else(|| AppError::NotFound("Serveur MCP introuvable".into()))
+}
+
+/// Build HTTP headers for a server, including auth for GitHub/GitLab.
+fn build_headers(server: &McpServer) -> reqwest::header::HeaderMap {
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert(
+        reqwest::header::CONTENT_TYPE,
+        "application/json".parse().unwrap(),
+    );
+    headers.insert(
+        reqwest::header::ACCEPT,
+        "application/json".parse().unwrap(),
+    );
+
+    // Custom headers from config
+    for (k, v) in &server.headers {
+        if let (Ok(name), Ok(val)) = (
+            reqwest::header::HeaderName::from_bytes(k.as_bytes()),
+            reqwest::header::HeaderValue::from_str(v),
+        ) {
+            headers.insert(name, val);
+        }
+    }
+
+    // Auth token → header selon le provider
+    if !server.auth_token.is_empty() {
+        match server.server_type.as_str() {
+            "github" => {
+                if let Ok(val) = reqwest::header::HeaderValue::from_str(
+                    &format!("Bearer {}", server.auth_token),
+                ) {
+                    headers.insert(reqwest::header::AUTHORIZATION, val);
+                }
+                // GitHub API version
+                if let Ok(val) = reqwest::header::HeaderValue::from_str("2022-11-28") {
+                    headers.insert(
+                        reqwest::header::HeaderName::from_static("x-github-api-version"),
+                        val,
+                    );
+                }
+            }
+            "gitlab" => {
+                if let Ok(val) = reqwest::header::HeaderValue::from_str(&server.auth_token) {
+                    headers.insert(
+                        reqwest::header::HeaderName::from_static("private-token"),
+                        val,
+                    );
+                }
+            }
+            _ => {
+                // Générique : Bearer token
+                if let Ok(val) = reqwest::header::HeaderValue::from_str(
+                    &format!("Bearer {}", server.auth_token),
+                ) {
+                    headers.insert(reqwest::header::AUTHORIZATION, val);
+                }
+            }
+        }
+    }
+
+    headers
+}
+
+/// Build the ping URL based on server type.
+fn ping_url(server: &McpServer) -> String {
+    match server.server_type.as_str() {
+        "github" => format!("{}/user", server.url.trim_end_matches('/')),
+        "gitlab" => format!("{}/api/v4/user", server.url.trim_end_matches('/')),
+        _ => server.url.clone(),
+    }
+}
+
+/// Build tools list for GitHub/GitLab (built-in, not from JSON-RPC).
+fn provider_tools(server: &McpServer) -> Option<Value> {
+    match server.server_type.as_str() {
+        "github" => Some(json!([
+            {"name": "repos_list", "description": "Lister les repositories", "inputSchema": {"type": "object", "properties": {"org": {"type": "string"}, "per_page": {"type": "integer"}}, "required": []}},
+            {"name": "repo_get", "description": "Détails d'un repository", "inputSchema": {"type": "object", "properties": {"owner": {"type": "string"}, "repo": {"type": "string"}}, "required": ["owner", "repo"]}},
+            {"name": "issues_list", "description": "Lister les issues d'un repo", "inputSchema": {"type": "object", "properties": {"owner": {"type": "string"}, "repo": {"type": "string"}, "state": {"type": "string"}}, "required": ["owner", "repo"]}},
+            {"name": "issue_create", "description": "Créer une issue", "inputSchema": {"type": "object", "properties": {"owner": {"type": "string"}, "repo": {"type": "string"}, "title": {"type": "string"}, "body": {"type": "string"}}, "required": ["owner", "repo", "title"]}},
+            {"name": "pulls_list", "description": "Lister les pull requests", "inputSchema": {"type": "object", "properties": {"owner": {"type": "string"}, "repo": {"type": "string"}, "state": {"type": "string"}}, "required": ["owner", "repo"]}},
+            {"name": "pr_create", "description": "Créer une pull request", "inputSchema": {"type": "object", "properties": {"owner": {"type": "string"}, "repo": {"type": "string"}, "title": {"type": "string"}, "body": {"type": "string"}, "head": {"type": "string"}, "base": {"type": "string"}}, "required": ["owner", "repo", "title", "head", "base"]}},
+            {"name": "actions_list", "description": "Lister les workflow runs", "inputSchema": {"type": "object", "properties": {"owner": {"type": "string"}, "repo": {"type": "string"}}, "required": ["owner", "repo"]}},
+            {"name": "releases_list", "description": "Lister les releases", "inputSchema": {"type": "object", "properties": {"owner": {"type": "string"}, "repo": {"type": "string"}}, "required": ["owner", "repo"]}},
+            {"name": "file_read", "description": "Lire un fichier depuis un repo", "inputSchema": {"type": "object", "properties": {"owner": {"type": "string"}, "repo": {"type": "string"}, "path": {"type": "string"}, "ref": {"type": "string"}}, "required": ["owner", "repo", "path"]}},
+            {"name": "search_code", "description": "Rechercher du code sur GitHub", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
+        ])),
+        "gitlab" => Some(json!([
+            {"name": "projects_list", "description": "Lister les projets", "inputSchema": {"type": "object", "properties": {"group": {"type": "string"}, "per_page": {"type": "integer"}}, "required": []}},
+            {"name": "project_get", "description": "Détails d'un projet", "inputSchema": {"type": "object", "properties": {"project_id": {"type": "string"}}, "required": ["project_id"]}},
+            {"name": "issues_list", "description": "Lister les issues d'un projet", "inputSchema": {"type": "object", "properties": {"project_id": {"type": "string"}, "state": {"type": "string"}}, "required": ["project_id"]}},
+            {"name": "issue_create", "description": "Créer une issue", "inputSchema": {"type": "object", "properties": {"project_id": {"type": "string"}, "title": {"type": "string"}, "description": {"type": "string"}}, "required": ["project_id", "title"]}},
+            {"name": "merge_requests_list", "description": "Lister les merge requests", "inputSchema": {"type": "object", "properties": {"project_id": {"type": "string"}, "state": {"type": "string"}}, "required": ["project_id"]}},
+            {"name": "mr_create", "description": "Créer une merge request", "inputSchema": {"type": "object", "properties": {"project_id": {"type": "string"}, "title": {"type": "string"}, "source_branch": {"type": "string"}, "target_branch": {"type": "string"}}, "required": ["project_id", "title", "source_branch", "target_branch"]}},
+            {"name": "pipelines_list", "description": "Lister les pipelines CI", "inputSchema": {"type": "object", "properties": {"project_id": {"type": "string"}}, "required": ["project_id"]}},
+            {"name": "file_read", "description": "Lire un fichier depuis un projet", "inputSchema": {"type": "object", "properties": {"project_id": {"type": "string"}, "path": {"type": "string"}, "ref": {"type": "string"}}, "required": ["project_id", "path"]}},
+            {"name": "search_code", "description": "Rechercher du code sur GitLab", "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "project_id": {"type": "string"}}, "required": ["query"]}},
+        ])),
+        _ => None,
+    }
 }
 
 // ── Handlers ──
@@ -185,7 +324,9 @@ pub async fn ping_server(
         .build()
         .map_err(|e| AppError::Internal(format!("HTTP client error: {e}")))?;
 
-    match client.get(&server.url).send().await {
+    let url = ping_url(&server);
+    let headers = build_headers(&server);
+    match client.get(&url).headers(headers).send().await {
         Ok(resp) => Ok(Json(json!({
             "reachable": true,
             "status": resp.status().as_u16(),
@@ -213,20 +354,16 @@ pub async fn list_server_tools(
         .build()
         .map_err(|e| AppError::Internal(format!("HTTP client error: {e}")))?;
 
-    let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert(
-        reqwest::header::CONTENT_TYPE,
-        "application/json".parse().unwrap(),
-    );
-    for (k, v) in &server.headers {
-        if let (Ok(name), Ok(val)) = (
-            reqwest::header::HeaderName::from_bytes(k.as_bytes()),
-            reqwest::header::HeaderValue::from_str(v),
-        ) {
-            headers.insert(name, val);
-        }
+    // GitHub/GitLab : retourne les outils built-in
+    if let Some(tools) = provider_tools(&server) {
+        return Ok(Json(json!({
+            "server_id": server_id,
+            "tools": tools,
+        })));
     }
 
+    // MCP JSON-RPC : appel tools/list
+    let headers = build_headers(&server);
     let resp = client
         .post(&server.url)
         .headers(headers)
@@ -274,20 +411,23 @@ pub async fn call_tool(
         .build()
         .map_err(|e| AppError::Internal(format!("HTTP client error: {e}")))?;
 
-    let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert(
-        reqwest::header::CONTENT_TYPE,
-        "application/json".parse().unwrap(),
-    );
-    for (k, v) in &server.headers {
-        if let (Ok(name), Ok(val)) = (
-            reqwest::header::HeaderName::from_bytes(k.as_bytes()),
-            reqwest::header::HeaderValue::from_str(v),
-        ) {
-            headers.insert(name, val);
+    let headers = build_headers(&server);
+    let base = server.url.trim_end_matches('/');
+
+    // GitHub/GitLab : route vers les APIs REST natives
+    match server.server_type.as_str() {
+        "github" => {
+            let data = call_github(&client, base, &query.tool_name, &arguments, headers).await?;
+            return Ok(Json(data));
         }
+        "gitlab" => {
+            let data = call_gitlab(&client, base, &query.tool_name, &arguments, headers).await?;
+            return Ok(Json(data));
+        }
+        _ => {}
     }
 
+    // MCP JSON-RPC : appel tools/call
     let resp = client
         .post(&server.url)
         .headers(headers)
@@ -310,4 +450,117 @@ pub async fn call_tool(
         .map_err(|e| AppError::BadGateway(format!("Invalid JSON from MCP server: {e}")))?;
 
     Ok(Json(data))
+}
+
+// ── GitHub API adapter ──
+
+async fn call_github(
+    client: &reqwest::Client,
+    base: &str,
+    tool: &str,
+    args: &Value,
+    headers: reqwest::header::HeaderMap,
+) -> Result<Value, AppError> {
+    let gs = |k: &str| args.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+    let (method, url, body) = match tool {
+        "repos_list" => {
+            let org = gs("org");
+            let url = if org.is_empty() {
+                format!("{base}/user/repos?per_page=100&sort=updated")
+            } else {
+                format!("{base}/orgs/{org}/repos?per_page=100&sort=updated")
+            };
+            ("GET", url, None)
+        }
+        "repo_get" => ("GET", format!("{base}/repos/{}/{}", gs("owner"), gs("repo")), None),
+        "issues_list" => {
+            let state = if gs("state").is_empty() { "open".to_string() } else { gs("state") };
+            ("GET", format!("{base}/repos/{}/{}/issues?state={state}", gs("owner"), gs("repo")), None)
+        }
+        "issue_create" => ("POST", format!("{base}/repos/{}/{}/issues", gs("owner"), gs("repo")),
+            Some(json!({"title": gs("title"), "body": gs("body")}))),
+        "pulls_list" => {
+            let state = if gs("state").is_empty() { "open".to_string() } else { gs("state") };
+            ("GET", format!("{base}/repos/{}/{}/pulls?state={state}", gs("owner"), gs("repo")), None)
+        }
+        "pr_create" => ("POST", format!("{base}/repos/{}/{}/pulls", gs("owner"), gs("repo")),
+            Some(json!({"title": gs("title"), "body": gs("body"), "head": gs("head"), "base": gs("base")}))),
+        "actions_list" => ("GET", format!("{base}/repos/{}/{}/actions/runs?per_page=20", gs("owner"), gs("repo")), None),
+        "releases_list" => ("GET", format!("{base}/repos/{}/{}/releases", gs("owner"), gs("repo")), None),
+        "file_read" => {
+            let r = if gs("ref").is_empty() { String::new() } else { format!("?ref={}", gs("ref")) };
+            ("GET", format!("{base}/repos/{}/{}/contents/{}{r}", gs("owner"), gs("repo"), gs("path")), None)
+        }
+        "search_code" => ("GET", format!("{base}/search/code?q={}", gs("query")), None),
+        _ => return Err(AppError::BadRequest(format!("Outil GitHub inconnu: {tool}"))),
+    };
+
+    let resp = match method {
+        "POST" => client.post(&url).headers(headers).json(&body.unwrap_or(json!({}))).send().await,
+        _ => client.get(&url).headers(headers).send().await,
+    }.map_err(|e| AppError::BadGateway(format!("GitHub API: {e}")))?;
+
+    resp.json::<Value>().await.map_err(|e| AppError::BadGateway(format!("GitHub JSON: {e}")))
+}
+
+// ── GitLab API adapter ──
+
+async fn call_gitlab(
+    client: &reqwest::Client,
+    base: &str,
+    tool: &str,
+    args: &Value,
+    headers: reqwest::header::HeaderMap,
+) -> Result<Value, AppError> {
+    let gs = |k: &str| args.get(k).and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let api = format!("{base}/api/v4");
+
+    let (method, url, body) = match tool {
+        "projects_list" => {
+            let group = gs("group");
+            let url = if group.is_empty() {
+                format!("{api}/projects?membership=true&per_page=100&order_by=updated_at")
+            } else {
+                format!("{api}/groups/{group}/projects?per_page=100&order_by=updated_at")
+            };
+            ("GET", url, None)
+        }
+        "project_get" => ("GET", format!("{api}/projects/{}", gs("project_id")), None),
+        "issues_list" => {
+            let state = if gs("state").is_empty() { "opened".to_string() } else { gs("state") };
+            ("GET", format!("{api}/projects/{}/issues?state={state}", gs("project_id")), None)
+        }
+        "issue_create" => ("POST", format!("{api}/projects/{}/issues", gs("project_id")),
+            Some(json!({"title": gs("title"), "description": gs("description")}))),
+        "merge_requests_list" => {
+            let state = if gs("state").is_empty() { "opened".to_string() } else { gs("state") };
+            ("GET", format!("{api}/projects/{}/merge_requests?state={state}", gs("project_id")), None)
+        }
+        "mr_create" => ("POST", format!("{api}/projects/{}/merge_requests", gs("project_id")),
+            Some(json!({"title": gs("title"), "source_branch": gs("source_branch"), "target_branch": gs("target_branch")}))),
+        "pipelines_list" => ("GET", format!("{api}/projects/{}/pipelines?per_page=20", gs("project_id")), None),
+        "file_read" => {
+            let r = if gs("ref").is_empty() { "main".to_string() } else { gs("ref") };
+            let path_encoded = gs("path").replace('/', "%2F");
+            ("GET", format!("{api}/projects/{}/repository/files/{path_encoded}?ref={r}", gs("project_id")), None)
+        }
+        "search_code" => {
+            let pid = gs("project_id");
+            let url = if pid.is_empty() {
+                format!("{api}/search?scope=blobs&search={}", gs("query"))
+            } else {
+                format!("{api}/projects/{pid}/search?scope=blobs&search={}", gs("query"))
+            };
+            ("GET", url, None)
+        }
+        _ => return Err(AppError::BadRequest(format!("Outil GitLab inconnu: {tool}"))),
+    };
+
+    let resp = match method {
+        "POST" => client.post(&url).headers(headers).json(&body.unwrap_or(json!({}))).send().await,
+        _ => client.get(&url).headers(headers).send().await,
+    }.map_err(|e| AppError::BadGateway(format!("GitLab API: {e}")))?;
+
+    resp.json::<Value>().await.map_err(|e| AppError::BadGateway(format!("GitLab JSON: {e}")))
 }

@@ -63,8 +63,24 @@ pub fn chunk_text(text: &str, chunk_size: usize, overlap: usize) -> Vec<(String,
 
 /// Code-aware chunking: splits on function/class definitions.
 pub fn chunk_code(content: &str, chunk_size: usize) -> Vec<(String, usize)> {
-    let re = Regex::new(r"\n(?=\s*(?:def |class |fn |function |func |async def |pub fn |impl ))").unwrap();
-    let blocks: Vec<&str> = re.split(content).collect();
+    // Rust regex doesn't support lookahead — split on lines starting with definitions
+    let re = Regex::new(r"\n\s*(?:def |class |fn |function |func |async def |pub fn |impl )").unwrap();
+
+    // Manual split preserving the delimiter at the start of each block
+    let mut blocks: Vec<String> = Vec::new();
+    let mut last = 0;
+    for m in re.find_iter(content) {
+        if m.start() > last {
+            blocks.push(content[last..m.start()].to_string());
+        }
+        last = m.start() + 1; // keep \n with the next block
+    }
+    if last < content.len() {
+        blocks.push(content[last..].to_string());
+    }
+    if blocks.is_empty() {
+        blocks.push(content.to_string());
+    }
 
     let mut chunks: Vec<(String, usize)> = Vec::new();
     let mut buffer = String::new();
@@ -84,8 +100,8 @@ pub fn chunk_code(content: &str, chunk_size: usize) -> Vec<(String, usize)> {
                 let t = estimate_tokens(&buffer);
                 chunks.push((buffer.clone(), t));
             }
-            if estimate_tokens(block) > chunk_size {
-                chunks.extend(force_split(block, chunk_size));
+            if estimate_tokens(&block) > chunk_size {
+                chunks.extend(force_split(&block, chunk_size));
                 buffer.clear();
             } else {
                 buffer = block.trim().to_string();
