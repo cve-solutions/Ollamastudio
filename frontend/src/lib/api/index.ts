@@ -298,6 +298,9 @@ export interface McpServer {
   url: string;
   enabled: boolean;
   type: string;
+  auth_token?: string;
+  organization?: string;
+  category?: string;
 }
 
 // ── Debug ──────────────────────────────────────────────────────────────────
