@@ -208,6 +208,7 @@ impl OllamaClient {
             "model": model,
             "messages": messages,
             "stream": true,
+            "temperature": temperature,
             "max_tokens": max_tokens,
         });
         if let Some(sys) = system {

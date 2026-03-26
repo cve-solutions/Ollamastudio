@@ -1,2 +1,4 @@
-// Agents module — tool execution and agentic loop
-// TODO: Phase 5 implementation
+pub mod r#loop;
+pub mod tools;
+
+pub use r#loop::agentic_loop;

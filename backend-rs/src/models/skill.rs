@@ -57,7 +57,9 @@ fn default_color() -> String {
 /// Generate a slug ID from a name.
 pub fn slugify(text: &str) -> String {
     let re = Regex::new(r"[^\w\s-]").unwrap();
-    let cleaned = re.replace_all(&text.to_lowercase().trim().to_string(), "");
+    let lowered = text.to_lowercase();
+    let trimmed = lowered.trim().to_string();
+    let cleaned = re.replace_all(&trimmed, "");
     let re2 = Regex::new(r"[\s_]+").unwrap();
     let slug = re2.replace_all(&cleaned, "-");
     let result = if slug.len() > 64 { &slug[..64] } else { &slug };

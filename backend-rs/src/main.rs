@@ -44,6 +44,16 @@ async fn main() {
         .await
         .expect("Impossible de seeder les settings");
 
+    // Seed default skills
+    if let Err(e) = routes::skills::seed_default_skills(&config).await {
+        tracing::warn!("Impossible de seeder les skills: {e}");
+    }
+
+    // Seed default templates
+    if let Err(e) = routes::templates::seed_default_templates(&config).await {
+        tracing::warn!("Impossible de seeder les templates: {e}");
+    }
+
     // Debug buffer
     let debug = DebugBuffer::new();
     let log_level = env::var("LOG_LEVEL").unwrap_or_default();
