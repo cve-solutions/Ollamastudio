@@ -1,6 +1,6 @@
 [package]
 name = "agent-mcp"
-version = "0.0.24"
+version = "0.0.31"
 edition = "2024"
 description = "OllamaStudio Agent MCP — Serveur MCP system-level pour administration complète de la machine"
 
