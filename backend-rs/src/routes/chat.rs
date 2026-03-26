@@ -53,11 +53,19 @@ pub async fn chat_stream(
         .collect();
 
     // --- Load skill system_prompt if session has a skill_id ---
-    let system_prompt: Option<String> = if let Some(ref skill_id) = session.skill_id {
+    let mut system_prompt: Option<String> = if let Some(ref skill_id) = session.skill_id {
         load_skill_system_prompt(&state, skill_id).await
     } else {
         None
     };
+
+    // --- Enrichit le system prompt avec le contexte MCP ---
+    // Explique au LLM la différence entre outils internes et outils MCP
+    let mcp_context = build_mcp_context(&state.config).await;
+    if !mcp_context.is_empty() {
+        let base = system_prompt.unwrap_or_default();
+        system_prompt = Some(format!("{base}\n\n{mcp_context}"));
+    }
 
     // --- Persist the user message ---
     sqlx::query(
@@ -213,4 +221,66 @@ async fn load_skill_system_prompt(state: &AppState, skill_id: &str) -> Option<St
     .flatten();
 
     row.map(|(sp,)| sp)
+}
+
+// ------------------------------------------------------------------
+// MCP context builder
+// ------------------------------------------------------------------
+
+/// Build a system prompt section that explains available MCP servers to the LLM.
+async fn build_mcp_context(config: &crate::config::Config) -> String {
+    let path = config.data_dir.join("mcp_servers.yaml");
+    if !path.exists() {
+        return String::new();
+    }
+    let content = match tokio::fs::read_to_string(&path).await {
+        Ok(c) => c,
+        Err(_) => return String::new(),
+    };
+
+    #[derive(serde::Deserialize)]
+    struct S {
+        id: String,
+        name: String,
+        #[serde(default)]
+        description: String,
+        #[serde(default)]
+        enabled: bool,
+        #[serde(default, rename = "type")]
+        server_type: String,
+    }
+
+    let servers: Vec<S> = serde_yaml::from_str(&content).unwrap_or_default();
+    let enabled: Vec<&S> = servers.iter().filter(|s| s.enabled).collect();
+    if enabled.is_empty() {
+        return String::new();
+    }
+
+    let mut ctx = String::from(
+        "## Serveurs MCP disponibles\n\
+         Tu as accès à des serveurs MCP (Model Context Protocol) qui étendent tes capacités.\n\
+         Les outils MCP sont préfixés par `mcp__{server_id}__` suivi du nom de l'outil.\n\n\
+         IMPORTANT:\n\
+         - Pour exécuter des commandes SYSTÈME (installer des paquets, créer des fichiers,\n\
+           gérer des services, modifier des configs) → utilise les outils `mcp__agent-mcp__*`\n\
+         - Pour interagir avec une API GitHub/GitLab (repos, issues, PRs, pipelines)\n\
+           → utilise les outils `mcp__github__*` ou `mcp__gitlab__*`\n\
+         - NE CONFONDS PAS : \"installer GitLab sur le serveur\" = commandes système (agent-mcp),\n\
+           \"lister les issues GitLab\" = API GitLab (gitlab)\n\n\
+         Serveurs actifs:\n"
+    );
+
+    for s in &enabled {
+        let stype = match s.server_type.as_str() {
+            "github" => "API GitHub",
+            "gitlab" => "API GitLab",
+            _ => "Système/MCP",
+        };
+        ctx.push_str(&format!(
+            "- **{}** (id: `{}`, type: {}) — {}\n  Outils: `mcp__{}__*`\n",
+            s.name, s.id, stype, s.description, s.id
+        ));
+    }
+
+    ctx
 }

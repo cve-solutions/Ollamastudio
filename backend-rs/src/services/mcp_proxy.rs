@@ -67,9 +67,15 @@ pub async fn load_mcp_tools(
                 continue;
             }
 
-            let qualified = format!("mcp__{}_{}", server.id, tool_name);
+            let qualified = format!("mcp__{}__{}", server.id, tool_name);
+            let type_hint = match server.server_type.as_str() {
+                "github" => "API GitHub distante",
+                "gitlab" => "API GitLab distante",
+                _ => "Serveur MCP système",
+            };
             let description = format!(
-                "[MCP:{}] {}",
+                "[{}:{}] {}",
+                type_hint,
                 server.name,
                 tool.get("description").and_then(|d| d.as_str()).unwrap_or("")
             );
