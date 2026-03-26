@@ -138,6 +138,31 @@ fn b(v: &Value, key: &str, default: bool) -> bool {
     v.get(key).and_then(|x| x.as_bool()).unwrap_or(default)
 }
 
+/// Normalize arguments — LLMs often nest them in "input", "arguments", etc.
+fn normalize_args(args: &Value) -> Value {
+    if !args.is_object() {
+        return args.clone();
+    }
+    // Unwrap common wrappers
+    for wrapper in &["input", "arguments", "params", "parameters"] {
+        if let Some(inner) = args.get(*wrapper) {
+            if inner.is_object() {
+                return inner.clone();
+            }
+        }
+    }
+    // Single-key wrapper: {"foo": {"actual": "args"}}
+    if let Some(obj) = args.as_object() {
+        if obj.len() == 1 {
+            let only = obj.values().next().unwrap();
+            if only.is_object() {
+                return only.clone();
+            }
+        }
+    }
+    args.clone()
+}
+
 async fn run(cmd: &str, args: &[&str]) -> Result<String, String> {
     let output = Command::new(cmd)
         .args(args)
@@ -165,7 +190,10 @@ fn detect_pkg_manager() -> &'static str {
     else { "unknown" }
 }
 
-pub async fn execute(name: &str, args: &Value) -> Result<String, String> {
+pub async fn execute(name: &str, raw_args: &Value) -> Result<String, String> {
+    let a = normalize_args(raw_args);
+    let args = &a;
+    tracing::debug!("Tool {name} args: {args}");
     match name {
         // ── Fichiers ─────────────────────────────────────
         "fs_read" => {
