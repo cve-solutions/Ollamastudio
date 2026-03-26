@@ -7,6 +7,7 @@ use sqlx::SqlitePool;
 use std::pin::Pin;
 
 use crate::config::Config;
+use crate::services::mcp_proxy::{self, McpTool};
 use crate::services::ollama::{get_setting_i64, OllamaClient};
 
 use super::tools::{execute_tool, tool_schemas};
@@ -58,9 +59,9 @@ pub fn agentic_loop(
     pool: SqlitePool,
 ) -> Pin<Box<dyn Stream<Item = AgentEvent> + Send>> {
     let stream = async_stream::stream! {
-        // Filter tool schemas by enabled list.
+        // ── 1. Charge les outils internes ──
         let all_schemas = tool_schemas();
-        let tools: Vec<Value> = match &enabled_tools {
+        let mut tools: Vec<Value> = match &enabled_tools {
             Some(names) => all_schemas
                 .into_iter()
                 .filter(|t| {
@@ -73,6 +74,13 @@ pub fn agentic_loop(
                 .collect(),
             None => all_schemas,
         };
+
+        // ── 2. Charge les outils MCP des serveurs activés ──
+        let (mcp_schemas, mcp_registry) = mcp_proxy::load_mcp_tools(&config).await;
+        if !mcp_schemas.is_empty() {
+            tracing::info!("{} outils MCP injectés dans la boucle agentique", mcp_schemas.len());
+            tools.extend(mcp_schemas);
+        }
 
         let timeout_secs = get_setting_i64(&pool, "ollama_timeout", 300).await as u64;
 
@@ -234,7 +242,17 @@ pub fn agentic_loop(
                     call_id: call_id.clone(),
                 };
 
-                let result = execute_tool(name, args, &config, &pool).await;
+                // Route : outil MCP ou outil interne ?
+                let result = if name.starts_with("mcp__") {
+                    // Trouve l'outil MCP dans le registre
+                    if let Some(mcp_tool) = mcp_registry.iter().find(|t| t.qualified_name == *name) {
+                        mcp_proxy::execute_mcp_tool(mcp_tool, &args).await
+                    } else {
+                        json!({"error": format!("MCP tool not found: {name}")})
+                    }
+                } else {
+                    execute_tool(name, args, &config, &pool).await
+                };
 
                 yield AgentEvent::ToolResult {
                     name: name.clone(),
