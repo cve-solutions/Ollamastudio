@@ -22,13 +22,61 @@ pub async fn init_pool(db_path: &Path) -> Result<SqlitePool, sqlx::Error> {
 
 async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     let sql = include_str!("../migrations/001_init.sql");
-    // SQLite can execute multiple statements via raw_execute
-    for statement in sql.split(';') {
-        let trimmed = statement.trim();
-        if !trimmed.is_empty() {
-            sqlx::query(trimmed).execute(pool).await?;
+
+    // Split SQL respecting BEGIN...END blocks (for triggers)
+    let statements = split_sql_statements(sql);
+    for stmt in &statements {
+        if !stmt.is_empty() {
+            sqlx::query(stmt).execute(pool).await?;
         }
     }
-    tracing::info!("Database migrations applied");
+    tracing::info!("Database migrations applied ({} statements)", statements.len());
     Ok(())
+}
+
+/// Split SQL on `;` but keep `BEGIN...END;` blocks together.
+fn split_sql_statements(sql: &str) -> Vec<String> {
+    let mut statements = Vec::new();
+    let mut current = String::new();
+    let mut in_begin = false;
+
+    for line in sql.lines() {
+        let trimmed = line.trim().to_uppercase();
+
+        if trimmed.starts_with("--") {
+            continue; // skip comments
+        }
+
+        current.push_str(line);
+        current.push('\n');
+
+        if trimmed.contains("BEGIN") {
+            in_begin = true;
+        }
+
+        if in_begin && trimmed.contains("END;") {
+            in_begin = false;
+            let stmt = current.trim().to_string();
+            if !stmt.is_empty() {
+                statements.push(stmt);
+            }
+            current.clear();
+        } else if !in_begin && current.contains(';') {
+            // Split on ; outside of BEGIN blocks
+            for part in current.split(';') {
+                let s = part.trim().to_string();
+                if !s.is_empty() {
+                    statements.push(s);
+                }
+            }
+            current.clear();
+        }
+    }
+
+    let remaining = current.trim().to_string();
+    if !remaining.is_empty() {
+        statements.push(remaining);
+    }
+
+    statements
 }
