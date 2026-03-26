@@ -1,104 +1,114 @@
 /**
- * Serveur custom OllamaStudio — SvelteKit + proxy WebSocket.
+ * OllamaStudio — Serveur frontend
+ * SvelteKit SSR + Proxy HTTP/WebSocket vers le backend Rust.
+ *
+ * Tout passe par le port 3000 :
+ *   /api/*  → proxy HTTP vers le backend (port 8000)
+ *   /health → proxy HTTP vers le backend
+ *   WS /api/* → proxy WebSocket vers le backend
+ *   Reste   → SvelteKit (pages, assets)
  */
 import http from 'node:http';
 import { handler } from './build/handler.js';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = process.env.HOST || '0.0.0.0';
-const BACKEND = process.env.BACKEND_URL || 'http://backend:8000';
+const BACKEND = process.env.BACKEND_URL || 'http://127.0.0.1:8000';
 
 const backendUrl = new URL(BACKEND);
+const backendHost = backendUrl.hostname;
+const backendPort = parseInt(backendUrl.port || '8000', 10);
 
-// ── Serveur HTTP ────────────────────────────────────────────────
+// ── Proxy HTTP pour /api/* et /health ────────────────────────────
+function proxyRequest(req, res) {
+  const proxyReq = http.request(
+    {
+      hostname: backendHost,
+      port: backendPort,
+      path: req.url,
+      method: req.method,
+      headers: { ...req.headers, host: `${backendHost}:${backendPort}` },
+    },
+    (proxyRes) => {
+      res.writeHead(proxyRes.statusCode, proxyRes.headers);
+      proxyRes.pipe(res);
+    },
+  );
+
+  proxyReq.on('error', (err) => {
+    console.error(`[Proxy] ${req.method} ${req.url} → FAILED:`, err.message);
+    if (!res.headersSent) {
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+    }
+    res.end(JSON.stringify({ detail: `Backend inaccessible: ${err.message}` }));
+  });
+
+  req.pipe(proxyReq);
+}
+
+// ── Serveur HTTP ─────────────────────────────────────────────────
 const server = http.createServer((req, res) => {
+  // WebSocket upgrade — ne pas répondre (géré par l'event 'upgrade')
   if (req.headers.upgrade && req.headers.upgrade.toLowerCase() === 'websocket') {
-    return; // Laisse l'événement 'upgrade' gérer
+    return;
   }
+
+  // Proxy /api/* et /health vers le backend
+  if (req.url.startsWith('/api/') || req.url === '/health') {
+    return proxyRequest(req, res);
+  }
+
+  // Tout le reste → SvelteKit
   handler(req, res);
 });
 
-// ── Proxy WebSocket pour /api/* ─────────────────────────────────
+// ── Proxy WebSocket pour /api/* ──────────────────────────────────
 server.on('upgrade', (req, clientSocket, clientHead) => {
   if (!req.url?.startsWith('/api/')) {
     clientSocket.destroy();
     return;
   }
 
-  console.log(`[WS Proxy] Upgrade ${req.url} → ${BACKEND}${req.url}`);
+  console.log(`[WS Proxy] ${req.url} → ${BACKEND}${req.url}`);
 
-  // Copie les headers mais SUPPRIME les extensions WebSocket
-  // pour éviter permessage-deflate qui casse le proxy TCP brut
   const headers = { ...req.headers };
-  delete headers['sec-websocket-extensions'];
-  headers.host = `${backendUrl.hostname}:${backendUrl.port || 8000}`;
+  delete headers['sec-websocket-extensions']; // Évite permessage-deflate
+  headers.host = `${backendHost}:${backendPort}`;
 
   const proxyReq = http.request({
-    hostname: backendUrl.hostname,
-    port: backendUrl.port || 8000,
+    hostname: backendHost,
+    port: backendPort,
     path: req.url,
     method: 'GET',
     headers,
   });
 
   proxyReq.on('upgrade', (proxyRes, backendSocket, backendHead) => {
-    // Reconstruit la réponse 101 SANS les extensions
     let responseHeader = 'HTTP/1.1 101 Switching Protocols\r\n';
     for (const [key, value] of Object.entries(proxyRes.headers)) {
-      // Supprime les extensions pour que le navigateur n'utilise pas de compression
       if (key.toLowerCase() === 'sec-websocket-extensions') continue;
       if (value) responseHeader += `${key}: ${value}\r\n`;
     }
     responseHeader += '\r\n';
 
     clientSocket.write(responseHeader);
+    if (backendHead?.length) clientSocket.write(backendHead);
+    if (clientHead?.length) backendSocket.write(clientHead);
 
-    // Envoie les données résiduelles des deux côtés
-    if (backendHead && backendHead.length) {
-      clientSocket.write(backendHead);
-    }
-    if (clientHead && clientHead.length) {
-      backendSocket.write(clientHead);
-    }
-
-    // Désactive le buffering Nagle pour un envoi immédiat
     clientSocket.setNoDelay(true);
     backendSocket.setNoDelay(true);
 
-    // Bidirectionnel avec logging
-    clientSocket.on('data', (chunk) => {
-      backendSocket.write(chunk);
-    });
-
-    backendSocket.on('data', (chunk) => {
-      clientSocket.write(chunk);
-    });
-
+    clientSocket.on('data', (c) => backendSocket.write(c));
+    backendSocket.on('data', (c) => clientSocket.write(c));
     clientSocket.on('end', () => backendSocket.end());
     backendSocket.on('end', () => clientSocket.end());
-
-    clientSocket.on('error', (err) => {
-      console.error('[WS Proxy] Client error:', err.message);
-      backendSocket.destroy();
-    });
-
-    backendSocket.on('error', (err) => {
-      console.error('[WS Proxy] Backend error:', err.message);
-      clientSocket.destroy();
-    });
-
-    console.log(`[WS Proxy] Connected: ${req.url}`);
+    clientSocket.on('error', () => backendSocket.destroy());
+    backendSocket.on('error', () => clientSocket.destroy());
   });
 
   proxyReq.on('response', (res) => {
     console.warn(`[WS Proxy] Upgrade refused: ${res.statusCode}`);
-    let header = `HTTP/1.1 ${res.statusCode} ${res.statusMessage}\r\n`;
-    for (const [key, value] of Object.entries(res.headers)) {
-      if (value) header += `${key}: ${value}\r\n`;
-    }
-    header += '\r\n';
-    clientSocket.write(header);
-    res.pipe(clientSocket);
+    clientSocket.end();
   });
 
   proxyReq.on('error', (err) => {
@@ -111,6 +121,6 @@ server.on('upgrade', (req, clientSocket, clientHead) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`OllamaStudio frontend listening on http://${HOST}:${PORT}`);
-  console.log(`WebSocket proxy: /api/* → ${BACKEND}`);
+  console.log(`OllamaStudio frontend — http://${HOST}:${PORT}`);
+  console.log(`  Proxy: /api/* + /health → ${BACKEND}`);
 });
