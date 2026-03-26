@@ -44,27 +44,18 @@ pub struct CallToolQuery {
 fn default_servers() -> Vec<McpServer> {
     vec![
         McpServer {
-            id: "filesystem".into(),
-            name: "Filesystem MCP".into(),
-            description: "Acces etendu au systeme de fichiers via MCP".into(),
-            url: "http://localhost:3001".into(),
-            enabled: false,
-            server_type: "http".into(),
-            headers: HashMap::new(),
-        },
-        McpServer {
-            id: "git".into(),
-            name: "Git MCP".into(),
-            description: "Operations Git avancees via MCP".into(),
-            url: "http://localhost:3002".into(),
-            enabled: false,
+            id: "agent-mcp".into(),
+            name: "Agent MCP (Système)".into(),
+            description: "Administration système complète — fichiers, packages, services, cron, réseau, processus (root)".into(),
+            url: "http://127.0.0.1:9100".into(),
+            enabled: true,
             server_type: "http".into(),
             headers: HashMap::new(),
         },
         McpServer {
             id: "datagouv".into(),
             name: "DataGouv.FR".into(),
-            description: "APIs data.gouv.fr -- portail open data francais".into(),
+            description: "APIs data.gouv.fr — portail open data français".into(),
             url: "https://mcp.data.gouv.fr/mcp".into(),
             enabled: false,
             server_type: "http".into(),
@@ -82,7 +73,10 @@ fn config_path(state: &AppState) -> PathBuf {
 async fn load_servers(state: &AppState) -> Result<Vec<McpServer>, AppError> {
     let path = config_path(state);
     if !path.exists() {
-        return Ok(default_servers());
+        // Persiste les defaults pour qu'ils soient modifiables via l'UI
+        let defaults = default_servers();
+        save_servers(state, &defaults).await?;
+        return Ok(defaults);
     }
     let content = fs::read_to_string(&path).await?;
     let servers: Vec<McpServer> =
