@@ -389,20 +389,25 @@ fi
 # Teste la config nginx
 nginx -t 2>/dev/null && echo "  Config Nginx OK" || echo "  ATTENTION: config Nginx invalide — vérifiez manuellement"
 
-# Systemd
+# Systemd — active et démarre tous les services
 systemctl daemon-reload
-systemctl enable nginx 2>/dev/null || true
+systemctl enable ollamastudio-backend ollamastudio-frontend nginx 2>/dev/null || true
+systemctl restart ollamastudio-backend 2>/dev/null || true
+# Attend que le backend soit prêt avant de lancer le frontend
+sleep 2
+systemctl restart ollamastudio-frontend 2>/dev/null || true
 systemctl restart nginx 2>/dev/null || true
 
 echo ""
 echo "╔═══════════════════════════════════════════════════╗"
-echo "║           OllamaStudio installé !                ║"
+echo "║       OllamaStudio installé et démarré !         ║"
 echo "╠═══════════════════════════════════════════════════╣"
 echo "║                                                   ║"
-echo "║  Démarrer :  sudo ollamastudio-ctl start          ║"
-echo "║  Arrêter  :  sudo ollamastudio-ctl stop           ║"
+echo "║  Les services sont actifs et démarrent au boot.   ║"
+echo "║                                                   ║"
+echo "║  Contrôle :  sudo ollamastudio-ctl status         ║"
 echo "║  Logs     :  sudo ollamastudio-ctl logs           ║"
-echo "║  Status   :  ollamastudio-ctl status              ║"
+echo "║  Arrêter  :  sudo ollamastudio-ctl stop           ║"
 echo "║                                                   ║"
 echo "║  Interface : https://$(hostname)                  ║"
 echo "║  Config    : /etc/ollamastudio/                   ║"
@@ -520,12 +525,15 @@ if [ -d /etc/nginx/conf.d ]; then
 fi
 nginx -t 2>/dev/null || true
 systemctl daemon-reload
-systemctl enable nginx 2>/dev/null || true
+systemctl enable ollamastudio-backend ollamastudio-frontend nginx 2>/dev/null || true
+systemctl restart ollamastudio-backend 2>/dev/null || true
+sleep 2
+systemctl restart ollamastudio-frontend 2>/dev/null || true
 systemctl restart nginx 2>/dev/null || true
 echo ""
-echo "=== OllamaStudio installé ==="
-echo "  Démarrer  : sudo ollamastudio-ctl start"
+echo "=== OllamaStudio installé et démarré ==="
 echo "  Interface : https://$(hostname)"
+echo "  Contrôle  : sudo ollamastudio-ctl status"
 echo ""
 
 %preun
