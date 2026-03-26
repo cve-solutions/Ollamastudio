@@ -117,17 +117,7 @@ pub async fn create_skill(
         ));
     }
 
-    let skill = Skill {
-        id: body.id.clone(),
-        name: body.name,
-        description: body.description,
-        icon: body.icon,
-        system_prompt: body.system_prompt,
-        enabled_tools: body.enabled_tools,
-        temperature: body.temperature,
-        max_tokens: body.max_tokens,
-        color: body.color,
-    };
+    let skill = skill_from_create(body.id.clone(), body);
 
     let data = skill_to_yaml_value(&skill);
     let yaml_str =
@@ -148,17 +138,7 @@ pub async fn update_skill(
 ) -> Result<Json<Value>, AppError> {
     let path = skill_path(&state.config, &skill_id);
 
-    let skill = Skill {
-        id: skill_id,
-        name: body.name,
-        description: body.description,
-        icon: body.icon,
-        system_prompt: body.system_prompt,
-        enabled_tools: body.enabled_tools,
-        temperature: body.temperature,
-        max_tokens: body.max_tokens,
-        color: body.color,
-    };
+    let skill = skill_from_create(skill_id, body);
 
     let data = skill_to_yaml_value(&skill);
     let yaml_str =
@@ -232,17 +212,32 @@ pub async fn import_skills(
 
     // Accept array or object with known keys
     if let Some(obj) = data.as_object() {
-        let mut found_array = false;
+        let mut found = false;
         for key in &["skills", "personas", "agents", "items", "data"] {
-            if let Some(arr) = obj.get(*key) {
-                if arr.is_array() {
-                    data = arr.clone();
-                    found_array = true;
+            if let Some(val) = obj.get(*key) {
+                if val.is_array() {
+                    // Direct array: {"skills": [...]}
+                    data = val.clone();
+                    found = true;
                     break;
+                } else if let Some(inner_obj) = val.as_object() {
+                    // Nested object: {"skills": {"public": [...], "user": [...], ...}}
+                    // Flatten all sub-arrays into one list
+                    let mut all_items = Vec::new();
+                    for (_sub_key, sub_val) in inner_obj {
+                        if let Some(arr) = sub_val.as_array() {
+                            all_items.extend(arr.iter().cloned());
+                        }
+                    }
+                    if !all_items.is_empty() {
+                        data = Value::Array(all_items);
+                        found = true;
+                        break;
+                    }
                 }
             }
         }
-        if !found_array {
+        if !found {
             // Single object → wrap in array
             data = Value::Array(vec![data]);
         }
@@ -360,11 +355,18 @@ fn normalize_skill(
         .map(String::from)
         .unwrap_or_else(|| slugify(&name));
 
-    // Detect the main prompt field
-    let system_prompt = ["system_prompt", "content", "instructions", "prompt", "system"]
-        .iter()
-        .find_map(|key| raw.get(*key).and_then(|v| v.as_str()))
-        .map(String::from)?;
+    // Detect the main prompt field — description accepted as last-resort fallback
+    let system_prompt = [
+        "system_prompt",
+        "content",
+        "instructions",
+        "prompt",
+        "system",
+        "description",
+    ]
+    .iter()
+    .find_map(|key| raw.get(*key).and_then(|v| v.as_str()).filter(|s| !s.is_empty()))
+    .map(String::from)?;
 
     // enabled_tools
     let enabled_tools = raw
@@ -376,14 +378,17 @@ fn normalize_skill(
                 .collect::<Vec<String>>()
         });
 
+    // If system_prompt came from description, keep description as-is
+    let description = raw
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
     Some(Skill {
         id: skill_id,
         name,
-        description: raw
-            .get("description")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string(),
+        description,
         icon: raw
             .get("icon")
             .or(raw.get("emoji"))
@@ -405,7 +410,33 @@ fn normalize_skill(
             .and_then(|v| v.as_str())
             .unwrap_or("#6366f1")
             .to_string(),
+        category: raw
+            .get("category")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        format_tag: raw
+            .get("format")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
     })
+}
+
+fn skill_from_create(id: String, body: SkillCreate) -> Skill {
+    Skill {
+        id,
+        name: body.name,
+        description: body.description,
+        icon: body.icon,
+        system_prompt: body.system_prompt,
+        enabled_tools: body.enabled_tools,
+        temperature: body.temperature,
+        max_tokens: body.max_tokens,
+        color: body.color,
+        category: body.category,
+        format_tag: body.format_tag,
+    }
 }
 
 /// Convert a Skill to a YAML-serializable Value, excluding the `id` field
@@ -420,5 +451,11 @@ fn skill_to_yaml_value(skill: &Skill) -> Value {
     map.insert("temperature".into(), json!(skill.temperature));
     map.insert("max_tokens".into(), json!(skill.max_tokens));
     map.insert("color".into(), json!(skill.color));
+    if !skill.category.is_empty() {
+        map.insert("category".into(), json!(skill.category));
+    }
+    if !skill.format_tag.is_empty() {
+        map.insert("format_tag".into(), json!(skill.format_tag));
+    }
     Value::Object(map)
 }
