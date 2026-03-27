@@ -72,7 +72,7 @@ install_build_deps_deb() {
     sudo apt-get install -y -qq \
         build-essential pkg-config curl \
         libsqlite3-dev libssl-dev \
-        dpkg-dev 2>/dev/null || true
+        dpkg-dev rpm 2>/dev/null || true
 }
 
 install_build_deps_rpm() {
@@ -99,8 +99,8 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 ok "Node.js $(node --version)"
 
-# Libs système
-if ! pkg-config --exists sqlite3 2>/dev/null || ! pkg-config --exists openssl 2>/dev/null; then
+# Libs système + outils de packaging
+if ! pkg-config --exists sqlite3 2>/dev/null || ! pkg-config --exists openssl 2>/dev/null || ! command -v rpmbuild >/dev/null 2>&1; then
     if command -v apt-get >/dev/null 2>&1; then
         install_build_deps_deb
     elif command -v dnf >/dev/null 2>&1; then
@@ -108,10 +108,11 @@ if ! pkg-config --exists sqlite3 2>/dev/null || ! pkg-config --exists openssl 2>
     elif command -v yum >/dev/null 2>&1; then
         install_build_deps_rpm yum
     else
-        warn "Impossible de détecter le gestionnaire de paquets. Assurez-vous que libsqlite3-dev et libssl-dev sont installés."
+        warn "Impossible de détecter le gestionnaire de paquets. Assurez-vous que libsqlite3-dev, libssl-dev et rpm sont installés."
     fi
 fi
 ok "Bibliothèques système (sqlite3, openssl)"
+command -v rpmbuild >/dev/null 2>&1 && ok "rpmbuild disponible" || warn "rpmbuild absent — les .rpm ne seront pas générés"
 
 # ═══════════════════════════════════════════════════════════════════════
 # 2. COMPILATION BACKEND RUST
