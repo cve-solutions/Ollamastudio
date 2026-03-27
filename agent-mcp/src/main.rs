@@ -64,7 +64,7 @@ impl JsonRpcResponse {
 async fn server_info() -> Json<Value> {
     Json(json!({
         "name": "agent-mcp",
-        "version": env::var("APP_VERSION").unwrap_or_else(|_| "0.0.33".into()),
+        "version": env::var("APP_VERSION").unwrap_or_else(|_| "0.0.34".into()),
         "description": "OllamaStudio Agent MCP — Administration système complète",
         "protocol": "mcp-jsonrpc",
         "tools_count": tools::TOOL_LIST.len(),
@@ -122,7 +122,7 @@ async fn main() {
         .unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
-    let version = env::var("APP_VERSION").unwrap_or_else(|_| "0.0.33".into());
+    let version = env::var("APP_VERSION").unwrap_or_else(|_| "0.0.34".into());
     tracing::info!("Agent MCP v{version} — démarrage");
     tracing::info!("{} outils système disponibles", tools::TOOL_LIST.len());
 
