@@ -351,7 +351,7 @@ Description: $DESCRIPTION
  Inclut un terminal web, un explorateur de fichiers, un système
  de skills/templates, et un chat agentique avec tool calling.
 Homepage: $URL
-Depends: libsqlite3-0, libssl3 | libssl1.1, libc6, bash, nodejs (>= 18), nginx, openssl
+Depends: libsqlite3-0, libssl3 | libssl1.1, libc6, bash, nodejs (>= 18), nginx, openssl, systemd, ca-certificates
 Section: web
 Priority: optional
 Installed-Size: $(du -sk "$DEB_DIR" | cut -f1)
@@ -478,7 +478,7 @@ URL:            $URL
 BuildArch:      $RPM_ARCH
 AutoReqProv:    no
 
-Requires:       sqlite-libs, openssl-libs, openssl, glibc, bash, nodejs >= 18, nginx
+Requires:       sqlite-libs, openssl-libs, openssl, glibc, bash, nodejs >= 18, nginx, systemd, ca-certificates
 
 %description
 $DESCRIPTION
@@ -607,7 +607,7 @@ Description: OllamaStudio Agent MCP — Serveur MCP pour administration système
  fichiers, packages, services, cron, réseau, processus, utilisateurs.
  Tourne en tant que service systemd sur le port 9100.
 Homepage: $URL
-Depends: bash, coreutils
+Depends: bash, coreutils, findutils, grep, systemd, cron, iproute2, iputils-ping, dnsutils, curl, procps, hostname, util-linux, passwd
 Section: admin
 Priority: optional
 Installed-Size: $(du -sk "$DEB_DIR/usr" | cut -f1)
@@ -698,7 +698,7 @@ License:        $LICENSE
 URL:            $URL
 BuildArch:      $RPM_ARCH
 AutoReqProv:    no
-Requires:       bash, coreutils
+Requires:       bash, coreutils, findutils, grep, systemd, cronie, iproute, iputils, bind-utils, curl, procps-ng, hostname, util-linux, shadow-utils
 
 %description
 Serveur MCP pour administration système complète.

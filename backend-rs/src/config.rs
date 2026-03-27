@@ -15,7 +15,7 @@ impl Config {
             workspace_root: PathBuf::from(env::var("WORKSPACE_ROOT").unwrap_or_else(|_| "workspace".into())),
             data_dir: PathBuf::from(env::var("DATA_DIR").unwrap_or_else(|_| "data".into())),
             documents_dir: PathBuf::from(env::var("DOCUMENTS_DIR").unwrap_or_else(|_| "documents".into())),
-            version: env::var("APP_VERSION").unwrap_or_else(|_| "0.0.13".into()),
+            version: env::var("APP_VERSION").unwrap_or_else(|_| "0.0.33".into()),
         }
     }
 
