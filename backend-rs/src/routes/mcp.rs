@@ -327,13 +327,21 @@ pub async fn ping_server(
     let url = ping_url(&server);
     let headers = build_headers(&server);
     match client.get(&url).headers(headers).send().await {
-        Ok(resp) => Ok(Json(json!({
-            "reachable": true,
-            "status": resp.status().as_u16(),
-            "url": server.url,
-        }))),
+        Ok(resp) => {
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            let detail: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+            Ok(Json(json!({
+                "reachable": true,
+                "authenticated": status >= 200 && status < 300,
+                "status": status,
+                "url": server.url,
+                "detail": detail,
+            })))
+        }
         Err(e) => Ok(Json(json!({
             "reachable": false,
+            "authenticated": false,
             "error": e.to_string(),
             "url": server.url,
         }))),

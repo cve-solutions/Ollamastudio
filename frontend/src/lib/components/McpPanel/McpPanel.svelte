@@ -71,9 +71,14 @@
     servers = [...servers];
     try {
       const r = await mcpApi.ping(server.id);
-      server.pingResult = r.reachable
-        ? { ok: true, msg: `Connecté (HTTP ${r.status})` }
-        : { ok: false, msg: r.error || 'Inaccessible' };
+      if (!r.reachable) {
+        server.pingResult = { ok: false, msg: `✗ ${r.error}` };
+      } else if (r.authenticated) {
+        server.pingResult = { ok: true, msg: `✓ Connecté (HTTP ${r.status})` };
+      } else {
+        const detail = r.detail?.message || `HTTP ${r.status}`;
+        server.pingResult = { ok: false, msg: `✗ Auth échouée : ${detail}` };
+      }
     } catch (e) {
       server.pingResult = { ok: false, msg: String(e) };
     } finally {
