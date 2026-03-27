@@ -72,7 +72,7 @@ install_build_deps_deb() {
     sudo apt-get install -y -qq \
         build-essential pkg-config curl \
         libsqlite3-dev libssl-dev \
-        dpkg-dev rpm \
+        dpkg-dev \
         || warn "Certains paquets de build n'ont pas pu être installés"
 }
 
@@ -82,7 +82,7 @@ install_build_deps_rpm() {
     sudo "$PM" install -y \
         gcc make pkgconf-pkg-config curl \
         sqlite-devel openssl-devel \
-        rpm-build dpkg \
+        rpm-build \
         || warn "Certains paquets de build n'ont pas pu être installés"
 }
 
@@ -115,22 +115,7 @@ if ! pkg-config --exists sqlite3 2>/dev/null || ! pkg-config --exists openssl 2>
 fi
 ok "Bibliothèques système (sqlite3, openssl)"
 
-# Outils de packaging cross-distro
-for tool_pkg in "rpmbuild:rpm-build:rpm" "dpkg-deb:dpkg:dpkg-dev"; do
-    tool="${tool_pkg%%:*}"
-    rpm_pkg="${tool_pkg#*:}"; rpm_pkg="${rpm_pkg%%:*}"
-    deb_pkg="${tool_pkg##*:}"
-    if ! command -v "$tool" >/dev/null 2>&1; then
-        info "$tool absent — tentative d'installation..."
-        if command -v dnf >/dev/null 2>&1; then
-            sudo dnf install -y "$rpm_pkg" || warn "Échec d'installation de '$rpm_pkg'"
-        elif command -v yum >/dev/null 2>&1; then
-            sudo yum install -y "$rpm_pkg" || warn "Échec d'installation de '$rpm_pkg'"
-        elif command -v apt-get >/dev/null 2>&1; then
-            sudo apt-get install -y "$deb_pkg" || warn "Échec d'installation de '$deb_pkg'"
-        fi
-    fi
-done
+# Vérification des outils de packaging natifs
 command -v rpmbuild >/dev/null 2>&1 && ok "rpmbuild disponible" || warn "rpmbuild absent — les .rpm ne seront pas générés"
 command -v dpkg-deb >/dev/null 2>&1 && ok "dpkg-deb disponible" || warn "dpkg-deb absent — les .deb ne seront pas générés"
 
