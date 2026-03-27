@@ -112,6 +112,19 @@ if ! pkg-config --exists sqlite3 2>/dev/null || ! pkg-config --exists openssl 2>
     fi
 fi
 ok "Bibliothèques système (sqlite3, openssl)"
+
+# rpmbuild — installation explicite si absent
+if ! command -v rpmbuild >/dev/null 2>&1; then
+    info "rpmbuild absent — tentative d'installation..."
+    if command -v apt-get >/dev/null 2>&1; then
+        sudo apt-get update -qq
+        sudo apt-get install -y rpm || warn "Échec d'installation du paquet 'rpm' — les .rpm ne seront pas générés"
+    elif command -v dnf >/dev/null 2>&1; then
+        sudo dnf install -y rpm-build || warn "Échec d'installation de 'rpm-build'"
+    elif command -v yum >/dev/null 2>&1; then
+        sudo yum install -y rpm-build || warn "Échec d'installation de 'rpm-build'"
+    fi
+fi
 command -v rpmbuild >/dev/null 2>&1 && ok "rpmbuild disponible" || warn "rpmbuild absent — les .rpm ne seront pas générés"
 
 # ═══════════════════════════════════════════════════════════════════════
