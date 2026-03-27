@@ -115,7 +115,27 @@ if ! pkg-config --exists sqlite3 2>/dev/null || ! pkg-config --exists openssl 2>
 fi
 ok "Bibliothèques système (sqlite3, openssl)"
 
-# Vérification des outils de packaging natifs
+# Outils de packaging cross-distro (chaque outil installé séparément)
+if ! command -v rpmbuild >/dev/null 2>&1; then
+    info "rpmbuild absent — tentative d'installation..."
+    if command -v dnf >/dev/null 2>&1; then
+        sudo dnf install -y rpm-build || warn "Échec d'installation de 'rpm-build'"
+    elif command -v yum >/dev/null 2>&1; then
+        sudo yum install -y rpm-build || warn "Échec d'installation de 'rpm-build'"
+    elif command -v apt-get >/dev/null 2>&1; then
+        sudo apt-get install -y -qq rpm || warn "Échec d'installation de 'rpm'"
+    fi
+fi
+if ! command -v dpkg-deb >/dev/null 2>&1; then
+    info "dpkg-deb absent — tentative d'installation..."
+    if command -v dnf >/dev/null 2>&1; then
+        sudo dnf install -y dpkg || warn "Échec d'installation de 'dpkg'"
+    elif command -v yum >/dev/null 2>&1; then
+        sudo yum install -y dpkg || warn "Échec d'installation de 'dpkg'"
+    elif command -v apt-get >/dev/null 2>&1; then
+        sudo apt-get install -y -qq dpkg-dev || warn "Échec d'installation de 'dpkg-dev'"
+    fi
+fi
 command -v rpmbuild >/dev/null 2>&1 && ok "rpmbuild disponible" || warn "rpmbuild absent — les .rpm ne seront pas générés"
 command -v dpkg-deb >/dev/null 2>&1 && ok "dpkg-deb disponible" || warn "dpkg-deb absent — les .deb ne seront pas générés"
 
